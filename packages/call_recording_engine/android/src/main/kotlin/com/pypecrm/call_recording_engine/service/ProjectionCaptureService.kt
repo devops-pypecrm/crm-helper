@@ -21,6 +21,7 @@ import com.pypecrm.call_recording_engine.net.BackendApi
 import com.pypecrm.call_recording_engine.recorder.ProjectionAudioRecorder
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
 import com.pypecrm.call_recording_engine.util.CallLogLookup
+import com.pypecrm.call_recording_engine.util.PhoneNumberUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -98,9 +99,13 @@ class ProjectionCaptureService : Service() {
 
     private suspend fun finishAndStop() {
         val startedAt = callStatePrefs.callStartTimeMillis
+        val expectedNumberSuffix = PhoneNumberUtils.last10Digits(callStatePrefs.expectedNumber)
+        callStatePrefs.expectedNumber = null // consumed — don't leak into the next call
         val file = recorder.stop()
 
-        val details = CallLogLookup.awaitLatestCallDetails(this, startedAt)
+        val details = CallLogLookup.awaitLatestCallDetails(
+            this, startedAt, expectedNumberSuffix.ifEmpty { null }
+        )
         if (details == null) {
             Log.w(TAG, "Tier 3: call ended but no CallLog entry appeared — nothing to sync.")
             file?.delete()

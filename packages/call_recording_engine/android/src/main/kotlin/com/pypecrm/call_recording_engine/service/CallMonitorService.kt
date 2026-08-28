@@ -21,6 +21,7 @@ import com.pypecrm.call_recording_engine.recorder.CallAudioRecorder
 import com.pypecrm.call_recording_engine.scanner.NativeRecordingScanner
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
 import com.pypecrm.call_recording_engine.util.CallLogLookup
+import com.pypecrm.call_recording_engine.util.PhoneNumberUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -134,11 +135,15 @@ class CallMonitorService : Service() {
         }
 
         val startedAt = callStatePrefs.callStartTimeMillis
+        val expectedNumberSuffix = PhoneNumberUtils.last10Digits(callStatePrefs.expectedNumber)
+        callStatePrefs.expectedNumber = null // consumed — don't leak into the next call
         // Read the tier BEFORE stop() — it resets to null.
         val capturedTier = audioRecorder.activeTier
         val liveFile = if (audioRecorder.isRecording) audioRecorder.stop() else null
 
-        val details = CallLogLookup.awaitLatestCallDetails(this, startedAt)
+        val details = CallLogLookup.awaitLatestCallDetails(
+            this, startedAt, expectedNumberSuffix.ifEmpty { null }
+        )
         if (details == null) {
             Log.w(TAG, "Call ended but no CallLog entry appeared — nothing to sync.")
             liveFile?.delete()

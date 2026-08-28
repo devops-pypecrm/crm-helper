@@ -37,11 +37,23 @@ class CallStatePrefs(context: Context) {
         get() = prefs.getBoolean(KEY_LIKELY_OUTGOING, false)
         set(value) = prefs.edit().putBoolean(KEY_LIKELY_OUTGOING, value).apply()
 
+    /** Number from `TelephonyManager.EXTRA_INCOMING_NUMBER`, when the OS
+     * hands it to us at RINGING — reliable for incoming calls, always null
+     * for outgoing ones (the OS never provides an outgoing number to a
+     * non-default-dialer app, same reason [likelyOutgoing] exists). Used
+     * only as a matching HINT for [CallLogLookup] to prefer the right
+     * CallLog row when several calls land close together — never a hard
+     * requirement, since it's legitimately absent for outgoing calls. */
+    var expectedNumber: String?
+        get() = prefs.getString(KEY_EXPECTED_NUMBER, null)
+        set(value) = prefs.edit().putString(KEY_EXPECTED_NUMBER, value).apply()
+
     companion object {
         private const val PREFS_NAME = "call_recording_engine_call_state"
         private const val KEY_IS_ACTIVE = "is_call_active"
         private const val KEY_START_TIME = "call_start_time"
         private const val KEY_LAST_STATE = "last_state"
         private const val KEY_LIKELY_OUTGOING = "likely_outgoing"
+        private const val KEY_EXPECTED_NUMBER = "expected_number"
     }
 }

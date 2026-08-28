@@ -50,6 +50,13 @@ class CallStateReceiver : BroadcastReceiver() {
         if (previousState == callState) return
         callStatePrefs.lastPhoneState = callState
 
+        // Reliable for incoming calls only (EXTRA_INCOMING_NUMBER is never
+        // populated for outgoing ones) — captured whenever present, used as
+        // a CallLogLookup matching hint, not a hard requirement.
+        intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)?.let {
+            callStatePrefs.expectedNumber = it
+        }
+
         when (callState) {
             TelephonyManager.CALL_STATE_RINGING -> {
                 // Ringing never starts Tier 1 recording — there's no call
@@ -77,6 +84,9 @@ class CallStateReceiver : BroadcastReceiver() {
                 if (!callStatePrefs.isCallActive) return
                 callStatePrefs.isCallActive = false
                 startMonitorService(context, CallMonitorService.ACTION_CALL_ENDED)
+                // Cleared only after the service reads it during call-end
+                // processing — not here, since CallMonitorService.handleCallEnded
+                // runs asynchronously and needs it a moment after this returns.
             }
         }
     }
