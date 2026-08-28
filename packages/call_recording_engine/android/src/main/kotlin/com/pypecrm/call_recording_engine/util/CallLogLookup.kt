@@ -72,10 +72,16 @@ object CallLogLookup {
                 ),
                 null,
                 null,
-                "${CallLog.Calls.DATE} DESC LIMIT $CANDIDATE_LIMIT",
+                // No `LIMIT` embedded in sortOrder — confirmed on a real
+                // device that at least one OEM's CallLog ContentProvider
+                // rejects it outright ("Invalid token LIMIT"), unlike
+                // stock Android's SQLite passthrough. The row count is
+                // capped in Kotlin below instead, which works against any
+                // provider implementation.
+                "${CallLog.Calls.DATE} DESC",
             )?.use { cursor ->
                 val candidates = mutableListOf<Candidate>()
-                while (cursor.moveToNext()) {
+                while (cursor.moveToNext() && candidates.size < CANDIDATE_LIMIT) {
                     val date = cursor.getLong(3)
                     if (date < callStartedAtMillis - STALE_TOLERANCE_MS) continue
                     candidates.add(
