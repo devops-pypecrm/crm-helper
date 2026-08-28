@@ -1,0 +1,19 @@
+# Release signing config template — copy this file to `key.properties`
+# (same directory) and fill in real values. `key.properties` itself is
+# gitignored and must never be committed.
+#
+# To generate a keystore (do this once, then store the .jks file and these
+# passwords somewhere safe — losing them means this app can never be
+# updated again under the same identity, since Android requires every
+# update to an app to be signed with the same key):
+#
+#   keytool -genkey -v -keystore pype-call-recorder-release.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias pype_call_recorder
+#
+# Then point storeFile below at wherever you keep that .jks file (an
+# absolute path, or a path relative to android/app/).
+
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=pype_call_recorder
+storeFile=CHANGE_ME_path_to_keystore.jks

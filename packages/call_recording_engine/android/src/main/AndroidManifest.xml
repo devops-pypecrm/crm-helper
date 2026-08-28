@@ -1,0 +1,57 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  package="com.pypecrm.call_recording_engine">
+
+    <application>
+        <!-- These components merge into the host app's manifest
+             (Dad-call-recorder, see its AndroidManifest.xml for the full
+             permission list they rely on). The receiver/services only ever
+             act if EngineStats.isMonitoringEnabled is true — set via
+             CallRecordingEngine.startMonitoring()/stopMonitoring() from
+             Dart, so a fresh install with no login/onboarding done yet does
+             nothing even though the receiver is always registered. -->
+
+        <receiver
+            android:name=".receivers.CallStateReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".service.CallMonitorService"
+            android:foregroundServiceType="phoneCall|microphone"
+            android:exported="false" />
+
+        <!-- Tier 3's own service, deliberately NOT sharing
+             CallMonitorService's foregroundServiceType — see
+             ProjectionCaptureService's doc comment for why combining them
+             would risk crashing normal (non-Tier-3) call monitoring on
+             Android 14+. -->
+        <service
+            android:name=".service.ProjectionCaptureService"
+            android:foregroundServiceType="mediaProjection"
+            android:exported="false" />
+
+        <!-- Tier 2: merely existing and being enabled by the user in
+             system Settings > Accessibility unlocks
+             MediaRecorder.AudioSource.VOICE_RECOGNITION as an in-call audio
+             source on many Android versions — see
+             CallRecordingAccessibilityService's doc comment. Only the
+             system may bind to it (BIND_ACCESSIBILITY_SERVICE). -->
+        <service
+            android:name=".accessibility.CallRecordingAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+    </application>
+
+</manifest>

@@ -1,0 +1,103 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Full Phase 1-4 permission set — Tier 0 (OEM native-recorder file
+         detection), Tier 1/2 (MediaRecorder + forced speakerphone, with an
+         Accessibility-unlocked audio source), Tier 3 (MediaProjection), and
+         Tier 4 (metadata-only sync). Deliberately absent: CALL_PHONE,
+         PROCESS_OUTGOING_CALLS — genuinely unneeded (see
+         CallStateReceiver's doc comment on why). This app is sideloaded
+         (never Play-distributed), so Dad-mobile must never carry any of
+         this, but this app carries all of it. Note: BIND_ACCESSIBILITY_SERVICE
+         is enforced on the accessibility <service> element itself (see
+         call_recording_engine's manifest), not declared as a
+         <uses-permission> here — only the system can bind to it. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- Split by SDK version: READ_MEDIA_AUDIO (33+) replaces READ_EXTERNAL_STORAGE
+         for scoped audio access; maxSdkVersion keeps the legacy permission off
+         API 33+ installs where it would otherwise show as an unused grant. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Tier 1 (MediaRecorder + forced speakerphone). RECORD_AUDIO is a
+         dangerous/runtime permission — requested via
+         CallRecordingEnginePlugin.requestPermissions from onboarding, same
+         as READ_CALL_LOG/READ_PHONE_STATE. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Tier 3 (MediaProjection). The consent dialog itself is requested
+         per-session from an Activity (CallRecordingEnginePlugin.requestMediaProjectionPermission),
+         not a manifest-declared runtime permission — this only lets
+         ProjectionCaptureService declare its foregroundServiceType. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
+    <application
+        android:label="Pype Call Recorder"
+        android:name="${applicationName}"
+        android:icon="@mipmap/launcher_icon"
+        android:usesCleartextTraffic="true"> <!-- Dev flavor talks to http://localhost:5001 via
+             `adb reverse` (see AppConfig._resolveBaseUrl) — same reasoning as
+             Dad-frontend/android's AndroidManifest.xml. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+        <!-- Call-monitoring components (CallStateReceiver, CallMonitorService) are
+             declared in packages/call_recording_engine's own manifest, which
+             Gradle manifest-merges into this one — see that plugin's
+             android/src/main/AndroidManifest.xml for the actual declarations. -->
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Package visibility (Android 11+) so the plugin can detect OEM
+             auto-start/security-center apps (Xiaomi/Oppo/Vivo/Honor/etc.) by
+             package name before offering the deep-link — see AutoStartHelper. -->
+        <package android:name="com.miui.securitycenter" />
+        <package android:name="com.coloros.safecenter" />
+        <package android:name="com.iqoo.secure" />
+        <package android:name="com.vivo.permissionmanager" />
+        <package android:name="com.huawei.systemmanager" />
+        <package android:name="com.letv.android.letvsafe" />
+        <package android:name="com.evenwell.powersaving.g3" />
+        <package android:name="com.asus.mobilemanager" />
+    </queries>
+</manifest>
