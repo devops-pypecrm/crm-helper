@@ -58,9 +58,18 @@ class _PostLoginGate extends ConsumerStatefulWidget {
 class _PostLoginGateState extends ConsumerState<_PostLoginGate> {
   late final Future<bool> _onboardingNeeded = _checkOnboardingNeeded();
 
+  /// Defaults to "onboarding needed" on any failure (including
+  /// MissingPluginException on a platform with no native implementation,
+  /// e.g. running this Android-only app's Dart layer on web/desktop for a
+  /// quick UI check) rather than leaving the caller stuck on an infinite
+  /// spinner — onboarding itself can be skipped from there.
   Future<bool> _checkOnboardingNeeded() async {
-    final permissions = await ref.read(callRecordingEngineProvider).checkPermissions();
-    return permissions.isEmpty || permissions.values.any((granted) => !granted);
+    try {
+      final permissions = await ref.read(callRecordingEngineProvider).checkPermissions();
+      return permissions.isEmpty || permissions.values.any((granted) => !granted);
+    } catch (_) {
+      return true;
+    }
   }
 
   @override
@@ -68,10 +77,10 @@ class _PostLoginGateState extends ConsumerState<_PostLoginGate> {
     return FutureBuilder<bool>(
       future: _onboardingNeeded,
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-        return snapshot.data! ? const OnboardingScreen() : const StatusScreen();
+        return (snapshot.data ?? true) ? const OnboardingScreen() : const StatusScreen();
       },
     );
   }

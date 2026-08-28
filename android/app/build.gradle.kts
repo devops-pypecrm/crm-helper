@@ -66,6 +66,17 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+            // R8 minification is OFF deliberately — this app isn't
+            // Play-distributed, so APK-size trimming isn't worth the risk.
+            // Confirmed the hard way: AGP 9's default (minifyEnabled=true
+            // when unset) was stripping something androidx.work's internal
+            // Room `WorkDatabase` needs at runtime, crashing the app before
+            // Flutter even starts ("Failed to create an instance of class
+            // androidx.work.impl.WorkDatabase", visible only on a real
+            // device — release-mode-only, R8-only, so nothing in this
+            // repo's compile-only verification could have caught it).
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
