@@ -23,7 +23,10 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <!-- dataSync, not phoneCall — see CallMonitorService's doc comment on
+         why phoneCall was replaced (it requires MANAGE_OWN_CALLS/the
+         default-dialer role on Android 14+, crashing on every call-end). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Tier 1 (MediaRecorder + forced speakerphone). RECORD_AUDIO is a
          dangerous/runtime permission — requested via

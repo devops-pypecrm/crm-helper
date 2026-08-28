@@ -5,10 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.pypecrm.call_recording_engine.data.CallEventDbHelper
 import com.pypecrm.call_recording_engine.data.CallSettingsCache
 import com.pypecrm.call_recording_engine.data.CallStatePrefs
@@ -79,8 +81,18 @@ class CallMonitorService : Service() {
         // Called unconditionally, first, for every entry point (including a
         // cold restart) — Android requires startForeground() shortly after
         // any startForegroundService() call, regardless of which action
-        // triggered it.
-        startForeground(NOTIFICATION_ID, buildNotification(statusTextFor(intent?.action)))
+        // triggered it. Typed via ServiceCompat rather than plain
+        // startForeground(id, notification) — confirmed the hard way on a
+        // real device that the `phoneCall` type (used previously) requires
+        // MANAGE_OWN_CALLS or the default-dialer role on Android 14+, which
+        // this app deliberately has neither of (it only monitors calls, it
+        // doesn't manage them) — that mismatch crashed this exact call
+        // (SecurityException) on every single call-end, before any
+        // call-end processing ever ran. `dataSync` (idle/general) and
+        // `microphone` (only while actually recording) need no such role.
+        ServiceCompat.startForeground(
+            this, NOTIFICATION_ID, buildNotification(statusTextFor(intent?.action)), foregroundTypeFor(intent?.action)
+        )
 
         when (intent?.action) {
             ACTION_CALL_ACTIVE -> jobScope.launch { startLiveCaptureIfAllowed() }
@@ -215,6 +227,15 @@ class CallMonitorService : Service() {
         ACTION_CALL_ACTIVE -> "Call in progress…"
         ACTION_STOP -> "Stopping…"
         else -> "Waiting for calls…"
+    }
+
+    /** `microphone` only while a live recording session might genuinely be
+     * running (started at ACTION_CALL_ACTIVE, torn down at the top of
+     * handleCallEnded) — `dataSync` otherwise. See the doc comment on
+     * [onStartCommand] for why `phoneCall` is deliberately not used here. */
+    private fun foregroundTypeFor(action: String?): Int = when (action) {
+        ACTION_CALL_ACTIVE, ACTION_CALL_ENDED -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
     }
 
     private fun updateNotification(text: String) {

@@ -20,9 +20,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- `dataSync|microphone`, NOT `phoneCall` — confirmed on a real
+             device that `phoneCall` requires MANAGE_OWN_CALLS or the
+             default-dialer role on Android 14+ (this app is neither, it
+             only monitors calls, never manages them), which crashed this
+             service with a SecurityException on every single call-end.
+             See CallMonitorService.onStartCommand's doc comment. -->
         <service
             android:name=".service.CallMonitorService"
-            android:foregroundServiceType="phoneCall|microphone"
+            android:foregroundServiceType="dataSync|microphone"
             android:exported="false" />
 
         <!-- Tier 3's own service, deliberately NOT sharing
