@@ -2,12 +2,15 @@ package com.pypecrm.call_recording_engine
 
 import android.Manifest
 import android.app.Activity
+import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.telecom.TelecomManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.pypecrm.call_recording_engine.data.EngineStats
@@ -15,6 +18,9 @@ import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
 import com.pypecrm.call_recording_engine.service.CallMonitorService
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
+import com.pypecrm.call_recording_engine.telecom.CallDebugLog
+import com.pypecrm.call_recording_engine.telecom.CallStateMachine
+import com.pypecrm.call_recording_engine.telecom.PocConfig
 import com.pypecrm.call_recording_engine.util.AccessibilityUtils
 import com.pypecrm.call_recording_engine.util.AutoStartHelper
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -55,6 +61,7 @@ class CallRecordingEnginePlugin :
     private var activity: Activity? = null
     private var pendingPermissionResult: Result? = null
     private var pendingProjectionResult: Result? = null
+    private var pendingDialerRoleResult: Result? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -117,6 +124,25 @@ class CallRecordingEnginePlugin :
             "openAccessibilitySettings" -> result.success(openAccessibilitySettings())
             "hasMediaProjectionToken" -> result.success(MediaProjectionTokenStore.hasToken())
             "requestMediaProjectionPermission" -> requestMediaProjectionPermission(result)
+            "isDefaultDialer" -> result.success(isDefaultDialer())
+            "requestDialerRole" -> requestDialerRole(result)
+            "setPocRole" -> {
+                PocConfig(appContext).role = call.argument<String>("role")
+                result.success(null)
+            }
+            "getPocRole" -> result.success(PocConfig(appContext).role)
+            "setRecordingNumber" -> {
+                PocConfig(appContext).recordingNumber = call.argument<String>("number")
+                result.success(null)
+            }
+            "getDebugLog" -> result.success(CallDebugLog(appContext).readAll())
+            "getCallDebugState" -> result.success(CallStateMachine(appContext).snapshot())
+            "clearDebugLog" -> {
+                CallDebugLog(appContext).clear()
+                CallStateMachine(appContext).reset()
+                result.success(null)
+            }
+            "startPocDialerCall" -> startPocDialerCall(call.argument<String>("number"), result)
             else -> result.notImplemented()
         }
     }
@@ -225,11 +251,78 @@ class CallRecordingEnginePlugin :
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
-        if (requestCode != PROJECTION_REQUEST_CODE) return false
-        MediaProjectionTokenStore.store(resultCode, data)
-        pendingProjectionResult?.success(MediaProjectionTokenStore.hasToken())
-        pendingProjectionResult = null
-        return true
+        when (requestCode) {
+            PROJECTION_REQUEST_CODE -> {
+                MediaProjectionTokenStore.store(resultCode, data)
+                pendingProjectionResult?.success(MediaProjectionTokenStore.hasToken())
+                pendingProjectionResult = null
+                return true
+            }
+            DIALER_ROLE_REQUEST_CODE -> {
+                pendingDialerRoleResult?.success(isDefaultDialer())
+                pendingDialerRoleResult = null
+                return true
+            }
+        }
+        return false
+    }
+
+    /** Milestone 1 POC only. Whether this app currently holds
+     * `RoleManager.ROLE_DIALER` — required before `InCallService`
+     * callbacks or `TelecomManager.placeCall()` do anything useful. */
+    private fun isDefaultDialer(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val roleManager = appContext.getSystemService(Context.ROLE_SERVICE) as? RoleManager ?: return false
+        return roleManager.isRoleHeld(RoleManager.ROLE_DIALER)
+    }
+
+    /** Launches the system's "set as default dialer" confirmation dialog.
+     * Both POC roles (Dialer AND Recorder) need this — the Recorder phone
+     * also needs `ROLE_DIALER` to auto-answer via `Call.answer()` and be
+     * bound as the `InCallService` for its incoming leg (see
+     * PypeInCallService's doc comment). */
+    private fun requestDialerRole(result: Result) {
+        val currentActivity = activity
+        if (currentActivity == null) {
+            result.error("no_activity", "No Activity attached to request the dialer role from", null)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            result.success(false)
+            return
+        }
+        if (isDefaultDialer()) {
+            result.success(true)
+            return
+        }
+        val roleManager = currentActivity.getSystemService(Context.ROLE_SERVICE) as RoleManager
+        pendingDialerRoleResult = result
+        currentActivity.startActivityForResult(
+            roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER),
+            DIALER_ROLE_REQUEST_CODE,
+        )
+    }
+
+    /** Milestone 1 POC only. Places the initial customer-facing call —
+     * everything downstream (recorder-leg call, conference attempt) is
+     * driven by `PypeInCallService`/`ConferenceOrchestrator` reacting to
+     * this call reaching `STATE_ACTIVE`, not by this method directly. */
+    private fun startPocDialerCall(number: String?, result: Result) {
+        if (number.isNullOrBlank()) {
+            result.error("bad_args", "number is required", null)
+            return
+        }
+        if (!isDefaultDialer()) {
+            result.error("not_dialer_role", "This app does not hold ROLE_DIALER", null)
+            return
+        }
+        val telecomManager = appContext.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+        try {
+            telecomManager.placeCall(Uri.fromParts("tel", number, null), null)
+            result.success(null)
+        } catch (e: Exception) {
+            result.error("place_call_failed", e.message ?: e.toString(), null)
+        }
     }
 
     /** Always startForegroundService — even for [CallMonitorService.ACTION_STOP]
@@ -267,5 +360,6 @@ class CallRecordingEnginePlugin :
     companion object {
         private const val PERMISSION_REQUEST_CODE = 4202
         private const val PROJECTION_REQUEST_CODE = 4203
+        private const val DIALER_ROLE_REQUEST_CODE = 4204
     }
 }

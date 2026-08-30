@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../auth/domain/user_session.dart';
 import '../../../auth/providers/session_provider.dart';
 import '../../../onboarding/presentation/screens/onboarding_screen.dart';
+import '../../../poc/presentation/screens/role_settings_screen.dart';
 import '../../providers/status_provider.dart';
 
 class StatusScreen extends ConsumerWidget {
@@ -18,7 +19,15 @@ class StatusScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pype Call Recorder'),
+        // Long-press reaches the Milestone 1 POC (conference-recording
+        // experiment) — deliberately hidden, this is a debug surface, not
+        // part of the shipped Phase 1-5 flow.
+        title: GestureDetector(
+          onLongPress: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const RoleSettingsScreen()),
+          ),
+          child: const Text('Pype Call Recorder'),
+        ),
         actions: [
           IconButton(
             tooltip: 'Log out',

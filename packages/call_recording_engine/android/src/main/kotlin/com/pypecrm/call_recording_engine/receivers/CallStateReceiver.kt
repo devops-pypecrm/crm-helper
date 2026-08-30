@@ -8,6 +8,7 @@ import android.util.Log
 import com.pypecrm.call_recording_engine.data.CallStatePrefs
 import com.pypecrm.call_recording_engine.data.EngineStats
 import com.pypecrm.call_recording_engine.service.CallMonitorService
+import com.pypecrm.call_recording_engine.telecom.PocConfig
 
 /**
  * Adapted from Dad-frontend's CallStateReceiver.kt with one deliberate
@@ -27,6 +28,10 @@ class CallStateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val appContext = context.applicationContext
         if (!EngineStats(appContext).monitoringEnabled) return
+        // Milestone 1 POC: PypeInCallService (bound via ROLE_DIALER) is the
+        // sole call-handling path for either POC role — stand down entirely
+        // rather than double-processing the same call through both pipelines.
+        if (PocConfig(appContext).isActive) return
 
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED, "android.intent.action.QUICKBOOT_POWERON" ->

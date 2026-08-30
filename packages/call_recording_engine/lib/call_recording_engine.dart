@@ -103,6 +103,57 @@ class CallRecordingEngine {
   /// nothing below Android 10 (Tier 3 is API 29+ only).
   Future<bool> requestMediaProjectionPermission() async =>
       (await _channel.invokeMethod<bool>('requestMediaProjectionPermission')) ?? false;
+
+  // ---- Milestone 1 POC only (Truecaller-style conference recording) ----
+  // Everything below is isolated to lib/features/poc/ on the Dart side —
+  // a hidden debug surface, not part of the shipped Phase 1-5 UI. See
+  // Dad-call-recorder's plan file for the full architecture.
+
+  /// Whether this app currently holds `RoleManager.ROLE_DIALER`.
+  Future<bool> isDefaultDialer() async =>
+      (await _channel.invokeMethod<bool>('isDefaultDialer')) ?? false;
+
+  /// Launches the system's "set as default dialer" confirmation dialog.
+  /// Required for BOTH POC roles — see [PypeInCallService]'s doc comment
+  /// on why the Recorder role needs it too.
+  Future<bool> requestDialerRole() async =>
+      (await _channel.invokeMethod<bool>('requestDialerRole')) ?? false;
+
+  /// Sets which POC role this device plays: `'DIALER'`, `'RECORDER'`, or
+  /// `null` to deactivate the POC entirely (hands call-handling back to
+  /// the normal Phase 1-4 monitoring pipeline).
+  Future<void> setPocRole(String? role) => _channel.invokeMethod('setPocRole', {'role': role});
+
+  Future<String?> getPocRole() => _channel.invokeMethod<String>('getPocRole');
+
+  /// The number the Dialer role calls after the customer call connects —
+  /// the dedicated Pype Recorder SIM's number.
+  Future<void> setRecordingNumber(String? number) =>
+      _channel.invokeMethod('setRecordingNumber', {'number': number});
+
+  /// Newest-first list of `{event, detail, timestampMillis}` maps — the
+  /// debug panel's raw event feed. See `CallDebugLog`'s doc comment on why
+  /// this exists instead of relying on logcat.
+  Future<List<Map<String, Object?>>> getDebugLog() async {
+    final raw = await _channel.invokeListMethod<Object?>('getDebugLog');
+    return (raw ?? const []).cast<Map<Object?, Object?>>().map((e) => e.cast<String, Object?>()).toList();
+  }
+
+  /// The current [CallStateMachine] snapshot — checklist booleans, state
+  /// enum value, and outcome (A-E) once a call has run to completion.
+  Future<Map<String, Object?>> getCallDebugState() async {
+    final raw = await _channel.invokeMapMethod<String, Object?>('getCallDebugState');
+    return raw ?? const {};
+  }
+
+  Future<void> clearDebugLog() => _channel.invokeMethod('clearDebugLog');
+
+  /// Places the initial customer-facing call. Requires the Dialer role to
+  /// already hold `ROLE_DIALER` (see [isDefaultDialer]/[requestDialerRole]).
+  /// Everything after this — the recorder-leg call, the conference attempt
+  /// — is driven natively by `PypeInCallService`/`ConferenceOrchestrator`.
+  Future<void> startPocDialerCall(String number) =>
+      _channel.invokeMethod('startPocDialerCall', {'number': number});
 }
 
 class EngineStatus {

@@ -2,14 +2,17 @@
     <!-- Full Phase 1-4 permission set — Tier 0 (OEM native-recorder file
          detection), Tier 1/2 (MediaRecorder + forced speakerphone, with an
          Accessibility-unlocked audio source), Tier 3 (MediaProjection), and
-         Tier 4 (metadata-only sync). Deliberately absent: CALL_PHONE,
-         PROCESS_OUTGOING_CALLS — genuinely unneeded (see
-         CallStateReceiver's doc comment on why). This app is sideloaded
-         (never Play-distributed), so Dad-mobile must never carry any of
-         this, but this app carries all of it. Note: BIND_ACCESSIBILITY_SERVICE
-         is enforced on the accessibility <service> element itself (see
-         call_recording_engine's manifest), not declared as a
-         <uses-permission> here — only the system can bind to it. -->
+         Tier 4 (metadata-only sync), plus CALL_PHONE for the Milestone 1
+         POC's telecom/ package (see that package's doc comments) — the
+         only Phase 1-4 non-negotiable this touches is that PROCESS_OUTGOING_CALLS
+         remains unused (see CallStateReceiver's doc comment on why). This
+         app is sideloaded (never Play-distributed), so Dad-mobile must
+         never carry any of this, but this app carries all of it. Note:
+         BIND_ACCESSIBILITY_SERVICE/BIND_INCALL_SERVICE are enforced on
+         their respective <service> elements (see call_recording_engine's
+         manifest), not declared as <uses-permission> here — only the
+         system may bind to them. -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />

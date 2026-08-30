@@ -41,6 +41,51 @@
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
+        <!-- Milestone 1 POC only — the InCallService making the
+             conference-recording experiment possible at all (see
+             telecom/PypeInCallService.kt's doc comment). Only acts when
+             PocConfig.role is set; a fresh install with no POC role chosen
+             does nothing here even though ROLE_DIALER eligibility requires
+             this to always be declared. `IN_CALL_SERVICE_UI=true` marks
+             this as providing the primary in-call UI, a real requirement
+             for RoleManager.ROLE_DIALER eligibility, not optional. -->
+        <service
+            android:name=".telecom.PypeInCallService"
+            android:permission="android.permission.BIND_INCALL_SERVICE"
+            android:exported="true">
+            <meta-data
+                android:name="android.telecom.IN_CALL_SERVICE_UI"
+                android:value="true" />
+            <intent-filter>
+                <action android:name="android.telecom.InCallService" />
+            </intent-filter>
+        </service>
+
+        <!-- Milestone 1 POC only — a no-op activity that exists solely to
+             satisfy RoleManager.ROLE_DIALER's requirement that a candidate
+             app handle ACTION_DIAL/ACTION_VIEW(tel:). See
+             telecom/PocDialActivity.kt's doc comment. -->
+        <activity
+            android:name=".telecom.PocDialActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="tel" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tel" />
+            </intent-filter>
+        </activity>
+
         <!-- Tier 2: merely existing and being enabled by the user in
              system Settings > Accessibility unlocks
              MediaRecorder.AudioSource.VOICE_RECOGNITION as an in-call audio
