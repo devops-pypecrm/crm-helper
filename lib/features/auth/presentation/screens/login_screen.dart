@@ -63,7 +63,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 children: [
                   const Icon(Icons.mic_none_outlined, size: 64),
                   const SizedBox(height: 8),
-                  Text('Pype Call Recorder', style: Theme.of(context).textTheme.headlineSmall),
+                  Text('PypeCRM Helper', style: Theme.of(context).textTheme.headlineSmall),
                   const SizedBox(height: 4),
                   Text(
                     'Sign in with your PypeCRM account',

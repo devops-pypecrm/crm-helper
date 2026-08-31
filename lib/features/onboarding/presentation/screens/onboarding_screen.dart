@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../advanced/presentation/screens/native_recording_setup_screen.dart';
 import '../../../status/providers/engine_provider.dart';
 import '../../../status/providers/status_provider.dart';
 import '../../../status/presentation/screens/status_screen.dart';
@@ -26,6 +27,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   bool _ignoringBatteryOptimizations = false;
   bool _accessibilityEnabled = false;
   bool _hasProjectionToken = false;
+  bool _whatsAppListenerEnabled = false;
   bool _loading = true;
 
   @override
@@ -40,12 +42,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final ignoringBattery = await engine.isIgnoringBatteryOptimizations();
     final accessibilityEnabled = await engine.isAccessibilityServiceEnabled();
     final hasProjectionToken = await engine.hasMediaProjectionToken();
+    final whatsAppListenerEnabled = await engine.isWhatsAppListenerEnabled();
     if (!mounted) return;
     setState(() {
       _permissions = permissions;
       _ignoringBatteryOptimizations = ignoringBattery;
       _accessibilityEnabled = accessibilityEnabled;
       _hasProjectionToken = hasProjectionToken;
+      _whatsAppListenerEnabled = whatsAppListenerEnabled;
       _loading = false;
     });
   }
@@ -85,6 +89,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     await _refresh();
   }
 
+  Future<void> _openNotificationListenerSettings() async {
+    await ref.read(callRecordingEngineProvider).openNotificationListenerSettings();
+    // The user has to find and toggle it by hand in system Settings —
+    // refresh once they return rather than assuming it happened.
+    await _refresh();
+  }
+
   Future<void> _finish() async {
     if (_allPermissionsGranted) {
       await ref.read(callRecordingEngineProvider).startMonitoring();
@@ -110,7 +121,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               padding: const EdgeInsets.all(16),
               children: [
                 const Text(
-                  'These let Pype Call Recorder notice calls, find recordings your '
+                  'These let PypeCRM Helper notice calls, find recordings your '
                   "phone's own call recorder already made, and keep syncing in the "
                   'background even when this app is closed.',
                 ),
@@ -159,6 +170,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   onAction: _openAccessibilitySettings,
                 ),
                 _OnboardingStep(
+                  title: 'WhatsApp reply sync',
+                  subtitle: _whatsAppListenerEnabled
+                      ? 'Enabled — inbound WhatsApp replies are logged to the CRM automatically.'
+                      : 'Logs a lead\'s WhatsApp replies to the CRM timeline automatically. '
+                          'Reads only the notification preview (contact + message text), '
+                          'never the full chat.',
+                  done: _whatsAppListenerEnabled,
+                  actionLabel: 'Open settings',
+                  onAction: _openNotificationListenerSettings,
+                ),
+                _OnboardingStep(
                   title: 'Call audio capture (fallback)',
                   subtitle: _hasProjectionToken
                       ? 'Granted for this session — used only if the above methods fail.'
@@ -167,6 +189,20 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   done: _hasProjectionToken,
                   actionLabel: 'Grant',
                   onAction: _requestMediaProjection,
+                ),
+                _OnboardingStep(
+                  title: 'Auto-enable native call recording (Samsung, experimental)',
+                  subtitle: 'Tries to switch on the phone\'s own built-in call-recording '
+                      'setting so it captures calls itself. Samsung One UI only for now; '
+                      'requires accessibility above to be enabled first.',
+                  done: null, // Not independently verifiable — always offered.
+                  actionLabel: 'Open',
+                  onAction: () async {
+                    if (!mounted) return;
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const NativeRecordingSetupScreen()),
+                    );
+                  },
                 ),
                 const SizedBox(height: 24),
                 FilledButton(

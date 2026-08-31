@@ -73,6 +73,23 @@ class EngineStats(context: Context) {
         lastSyncedAtMillis = atMillis
     }
 
+    /** Count/timestamp for [com.pypecrm.call_recording_engine.service.WhatsAppSyncListenerService]
+     * — deliberately separate from the call-sync tier counters/[lastSyncedAtMillis]
+     * above, since this is an unrelated data source (notification content,
+     * not call events) surfaced as its own row on the status screen. */
+    var whatsAppSyncCount: Int
+        get() = prefs.getInt(KEY_WHATSAPP_SYNC_COUNT, 0)
+        set(value) = prefs.edit().putInt(KEY_WHATSAPP_SYNC_COUNT, value).apply()
+
+    var lastWhatsAppSyncAtMillis: Long
+        get() = prefs.getLong(KEY_LAST_WHATSAPP_SYNC_AT, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_WHATSAPP_SYNC_AT, value).apply()
+
+    fun recordWhatsAppSync(atMillis: Long) {
+        whatsAppSyncCount += 1
+        lastWhatsAppSyncAtMillis = atMillis
+    }
+
     companion object {
         private const val PREFS_NAME = "call_recording_engine_stats"
         private const val KEY_MONITORING_ENABLED = "monitoring_enabled"
@@ -83,5 +100,7 @@ class EngineStats(context: Context) {
         private const val KEY_TIER3_SUCCESS = "tier3_success_count"
         private const val KEY_TIER4_SUCCESS = "tier4_success_count"
         private const val KEY_NEXT_BULK_SYNC = "next_bulk_sync_allowed_at"
+        private const val KEY_WHATSAPP_SYNC_COUNT = "whatsapp_sync_count"
+        private const val KEY_LAST_WHATSAPP_SYNC_AT = "last_whatsapp_sync_at"
     }
 }

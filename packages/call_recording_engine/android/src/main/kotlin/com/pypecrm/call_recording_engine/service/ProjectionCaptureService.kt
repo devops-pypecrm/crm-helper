@@ -148,7 +148,7 @@ class ProjectionCaptureService : Service() {
 
     private fun buildNotification(): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Pype Call Recorder")
+            .setContentTitle("PypeCRM Helper")
             .setContentText("Capturing call audio…")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setOngoing(true)

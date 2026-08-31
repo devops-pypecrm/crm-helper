@@ -42,7 +42,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <application
-        android:label="Pype Call Recorder"
+        android:label="PypeCRM Helper"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon"
         android:usesCleartextTraffic="true"> <!-- Dev flavor talks to http://localhost:5001 via

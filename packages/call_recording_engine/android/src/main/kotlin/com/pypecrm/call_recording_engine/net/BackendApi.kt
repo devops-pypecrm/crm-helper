@@ -22,6 +22,24 @@ sealed class BulkSyncResult {
     data object Failed : BulkSyncResult()
 }
 
+sealed class WhatsAppSyncResult {
+    /** Logged to the CRM successfully. */
+    data object Success : WhatsAppSyncResult()
+
+    /** The org has `whatsAppScrapingEnabled = false` (Dad-backend's
+     * `logExternalMessage` still responds 200 in this case) — not an error,
+     * and never worth queuing for retry. */
+    data object Disabled : WhatsAppSyncResult()
+
+    /** Stale/invalid token (401) — retrying the same message won't help
+     * until the user re-authenticates, so this is also never queued. */
+    data object AuthFailed : WhatsAppSyncResult()
+
+    /** Network error or a non-401 server error — transient, safe to queue
+     * and retry later. */
+    data object Failed : WhatsAppSyncResult()
+}
+
 /**
  * Talks to Dad-backend's `/api/android` and `/api/call-settings` endpoints
  * directly via OkHttp (not Dio) — this runs from CallMonitorService and
@@ -137,6 +155,50 @@ class BackendApi(private val authPrefs: NativeAuthPrefs) {
                     BulkSyncResult.Failed
                 }
             }
+        }
+    }
+
+    /** `POST /api/android/whatsapp/sync` — logs an inbound WhatsApp reply
+     * (as read from the notification banner, never the full chat) against
+     * the matching lead/contact by phone number. Ported from
+     * Dad-frontend/android's old WebView-wrapper app; contract re-confirmed
+     * against Dad-backend's `androidRoutes.ts` + `whatsAppController.ts`'s
+     * `logExternalMessage`, which gates on `Organisation.whatsAppScrapingEnabled`
+     * server-side and still returns 200 (`{ success: false }`) when the org
+     * has it turned off — that's [WhatsAppSyncResult.Disabled], not a
+     * failure. */
+    fun syncWhatsAppMessage(phoneNumber: String, messageText: String): WhatsAppSyncResult {
+        val (token, base) = authOrNull() ?: return WhatsAppSyncResult.AuthFailed
+        val json = JSONObject().apply {
+            put("phoneNumber", phoneNumber)
+            put("messageText", messageText)
+            put("timestamp", System.currentTimeMillis())
+            put("source", "NOTIFICATION_LISTENER")
+        }
+        val request = Request.Builder()
+            .url("$base/android/whatsapp/sync")
+            .header("Authorization", "Bearer $token")
+            .post(json.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+            .build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                when {
+                    response.code == 401 -> WhatsAppSyncResult.AuthFailed
+                    !response.isSuccessful -> {
+                        Log.w(TAG, "syncWhatsAppMessage failed: ${response.code}")
+                        WhatsAppSyncResult.Failed
+                    }
+                    else -> {
+                        val success = runCatching { JSONObject(body).optBoolean("success", true) }
+                            .getOrDefault(true)
+                        if (success) WhatsAppSyncResult.Success else WhatsAppSyncResult.Disabled
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "syncWhatsAppMessage network error", e)
+            WhatsAppSyncResult.Failed
         }
     }
 

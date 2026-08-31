@@ -10,13 +10,17 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.pypecrm.call_recording_engine.accessibility.CallRecordingAccessibilityService
 import com.pypecrm.call_recording_engine.data.EngineStats
 import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
+import com.pypecrm.call_recording_engine.debug.EngineDebugLog
 import com.pypecrm.call_recording_engine.service.CallMonitorService
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
+import com.pypecrm.call_recording_engine.sync.WhatsAppSyncWorker
 import com.pypecrm.call_recording_engine.util.AccessibilityUtils
 import com.pypecrm.call_recording_engine.util.AutoStartHelper
+import com.pypecrm.call_recording_engine.util.NotificationListenerUtils
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -70,6 +74,12 @@ class CallRecordingEnginePlugin :
                 EngineStats(appContext).monitoringEnabled = true
                 startService(CallMonitorService.ACTION_ENSURE_RUNNING)
                 CallSyncWorker.schedulePeriodic(appContext)
+                // Notification access (if already granted) works independently
+                // of the accessibility/foreground-service permission set this
+                // action gates, but scheduling its periodic safety-net sync
+                // here too costs nothing when the listener is never enabled —
+                // WhatsAppSyncWorker just finds an empty queue and no-ops.
+                WhatsAppSyncWorker.schedulePeriodic(appContext)
                 result.success(null)
             }
             "stopMonitoring" -> {
@@ -88,6 +98,8 @@ class CallRecordingEnginePlugin :
                         "tier2SuccessCount" to stats.tier2SuccessCount,
                         "tier3SuccessCount" to stats.tier3SuccessCount,
                         "tier4SuccessCount" to stats.tier4SuccessCount,
+                        "whatsAppSyncCount" to stats.whatsAppSyncCount,
+                        "lastWhatsAppSyncedAtMillis" to stats.lastWhatsAppSyncAtMillis,
                     )
                 )
             }
@@ -115,8 +127,17 @@ class CallRecordingEnginePlugin :
             "isAccessibilityServiceEnabled" ->
                 result.success(AccessibilityUtils.isCallRecordingServiceEnabled(appContext))
             "openAccessibilitySettings" -> result.success(openAccessibilitySettings())
+            "isWhatsAppListenerEnabled" ->
+                result.success(NotificationListenerUtils.isWhatsAppListenerEnabled(appContext))
+            "openNotificationListenerSettings" -> result.success(openNotificationListenerSettings())
             "hasMediaProjectionToken" -> result.success(MediaProjectionTokenStore.hasToken())
             "requestMediaProjectionPermission" -> requestMediaProjectionPermission(result)
+            "attemptEnableNativeCallRecording" -> attemptEnableNativeCallRecording(result)
+            "getEngineDebugLog" -> result.success(EngineDebugLog(appContext).readAll())
+            "clearEngineDebugLog" -> {
+                EngineDebugLog(appContext).clear()
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
@@ -202,6 +223,26 @@ class CallRecordingEnginePlugin :
         }
     }
 
+    /** Opens system Settings > Notification access, same one-way pattern as
+     * [openAccessibilitySettings] — Android does not allow an app to enable
+     * itself as a notification listener. */
+    private fun openNotificationListenerSettings(): Boolean {
+        val currentActivity = activity ?: return try {
+            appContext.startActivity(
+                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            true
+        } catch (e: Exception) {
+            false
+        }
+        return try {
+            currentActivity.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     /** Launches the system's MediaProjection consent dialog. The result
      * (captured in [onActivityResult]) is stored in
      * [MediaProjectionTokenStore] for CallMonitorService/ProjectionCaptureService
@@ -222,6 +263,21 @@ class CallRecordingEnginePlugin :
         val manager =
             currentActivity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         currentActivity.startActivityForResult(manager.createScreenCaptureIntent(), PROJECTION_REQUEST_CODE)
+    }
+
+    /** Fire-and-forget — the automation runs for several seconds across
+     * multiple screen transitions, so its result is read back from
+     * [EngineDebugLog] (via getEngineDebugLog), not this call's return
+     * value. Requires the user to have already enabled the accessibility
+     * service (same prerequisite as Tier 2). */
+    private fun attemptEnableNativeCallRecording(result: Result) {
+        val service = CallRecordingAccessibilityService.instance
+        if (service == null) {
+            result.error("service_not_enabled", "Accessibility service is not currently enabled", null)
+            return
+        }
+        service.attemptSamsungAutoRecordSetup()
+        result.success(null)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {

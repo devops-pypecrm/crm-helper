@@ -58,6 +58,24 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- Reads WhatsApp notification content (contact + message preview,
+             never the full chat) to log inbound replies to the CRM — see
+             WhatsAppSyncListenerService's doc comment for why this lives
+             here and never in Dad-mobile (the Play Store app). Only the
+             system may bind to it (BIND_NOTIFICATION_LISTENER_SERVICE);
+             the user grants "Notification access" by hand in system
+             Settings, the same one-way-only pattern as the accessibility
+             service above. -->
+        <service
+            android:name=".service.WhatsAppSyncListenerService"
+            android:label="PypeCRM WhatsApp Sync"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

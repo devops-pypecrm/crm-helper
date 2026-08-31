@@ -86,10 +86,24 @@ class CallRecordingEngine {
       (await _channel.invokeMethod<bool>('isAccessibilityServiceEnabled')) ?? false;
 
   /// Opens system Settings > Accessibility. The user still has to find and
-  /// enable "Pype Call Recorder" by hand — there's no way to deep-link
+  /// enable "PypeCRM Helper" by hand — there's no way to deep-link
   /// straight to a specific service's toggle.
   Future<bool> openAccessibilitySettings() async =>
       (await _channel.invokeMethod<bool>('openAccessibilitySettings')) ?? false;
+
+  /// Whether the user has granted this app "Notification access" in system
+  /// Settings — required for [WhatsAppSyncListenerService] (native side) to
+  /// read WhatsApp notification content at all. Android doesn't let an app
+  /// grant this to itself — see [openNotificationListenerSettings] for the
+  /// action half.
+  Future<bool> isWhatsAppListenerEnabled() async =>
+      (await _channel.invokeMethod<bool>('isWhatsAppListenerEnabled')) ?? false;
+
+  /// Opens system Settings > Notification access. The user still has to
+  /// find and enable this app by hand — same limitation as
+  /// [openAccessibilitySettings].
+  Future<bool> openNotificationListenerSettings() async =>
+      (await _channel.invokeMethod<bool>('openNotificationListenerSettings')) ?? false;
 
   /// Tier 3: whether a MediaProjection consent token is currently held.
   /// This is lost whenever the app process dies — check it fresh each time
@@ -103,6 +117,27 @@ class CallRecordingEngine {
   /// nothing below Android 10 (Tier 3 is API 29+ only).
   Future<bool> requestMediaProjectionPermission() async =>
       (await _channel.invokeMethod<bool>('requestMediaProjectionPermission')) ?? false;
+
+  /// Advanced/experimental: triggers a best-effort UI automation (via the
+  /// already-enabled accessibility service) that opens the phone's stock
+  /// dialer and tries to switch on its built-in auto-call-recording
+  /// setting — currently targets Samsung One UI only. Fire-and-forget; read
+  /// progress/outcome back from [getEngineDebugLog], not this call's return
+  /// value. Throws a PlatformException with code `service_not_enabled` if
+  /// the accessibility service isn't currently enabled.
+  Future<void> attemptEnableNativeCallRecording() =>
+      _channel.invokeMethod('attemptEnableNativeCallRecording');
+
+  /// Newest-first `{event, detail, timestampMillis}` list covering both
+  /// Tier 0 (native-recording scan) and the auto-enable automation above —
+  /// see `EngineDebugLog`'s doc comment on why this exists instead of
+  /// relying on logcat (several OEMs suppress third-party app logs there).
+  Future<List<Map<String, Object?>>> getEngineDebugLog() async {
+    final raw = await _channel.invokeListMethod<Object?>('getEngineDebugLog');
+    return (raw ?? const []).cast<Map<Object?, Object?>>().map((e) => e.cast<String, Object?>()).toList();
+  }
+
+  Future<void> clearEngineDebugLog() => _channel.invokeMethod('clearEngineDebugLog');
 }
 
 class EngineStatus {
@@ -114,10 +149,13 @@ class EngineStatus {
     required this.tier2SuccessCount,
     required this.tier3SuccessCount,
     required this.tier4SuccessCount,
+    required this.whatsAppSyncCount,
+    required this.lastWhatsAppSyncedAt,
   });
 
   factory EngineStatus.fromMap(Map<String, Object?> map) {
     final lastSyncedAtMillis = (map['lastSyncedAtMillis'] as num?)?.toInt() ?? 0;
+    final lastWhatsAppSyncedAtMillis = (map['lastWhatsAppSyncedAtMillis'] as num?)?.toInt() ?? 0;
     return EngineStatus(
       monitoringEnabled: map['monitoringEnabled'] as bool? ?? false,
       lastSyncedAt:
@@ -127,6 +165,10 @@ class EngineStatus {
       tier2SuccessCount: (map['tier2SuccessCount'] as num?)?.toInt() ?? 0,
       tier3SuccessCount: (map['tier3SuccessCount'] as num?)?.toInt() ?? 0,
       tier4SuccessCount: (map['tier4SuccessCount'] as num?)?.toInt() ?? 0,
+      whatsAppSyncCount: (map['whatsAppSyncCount'] as num?)?.toInt() ?? 0,
+      lastWhatsAppSyncedAt: lastWhatsAppSyncedAtMillis > 0
+          ? DateTime.fromMillisecondsSinceEpoch(lastWhatsAppSyncedAtMillis)
+          : null,
     );
   }
 
@@ -137,6 +179,8 @@ class EngineStatus {
   final int tier2SuccessCount;
   final int tier3SuccessCount;
   final int tier4SuccessCount;
+  final int whatsAppSyncCount;
+  final DateTime? lastWhatsAppSyncedAt;
 
   int get totalSyncedCalls =>
       tier0SuccessCount + tier1SuccessCount + tier2SuccessCount + tier3SuccessCount + tier4SuccessCount;

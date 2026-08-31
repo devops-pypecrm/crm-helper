@@ -13,7 +13,7 @@ class CallRecorderApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Pype Call Recorder',
+      title: 'PypeCRM Helper',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
       home: const _AuthGate(),

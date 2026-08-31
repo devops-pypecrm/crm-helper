@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="accessibility_service_description">Lets Pype Call Recorder capture call audio on devices where the standard method is blocked. Does not read screen content.</string>
+    <string name="accessibility_service_description">Lets PypeCRM Helper capture call audio on devices where the standard method is blocked. Does not read screen content.</string>
 </resources>

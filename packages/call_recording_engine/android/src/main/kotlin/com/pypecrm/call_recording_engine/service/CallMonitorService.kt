@@ -245,7 +245,7 @@ class CallMonitorService : Service() {
 
     private fun buildNotification(text: String): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Pype Call Recorder")
+            .setContentTitle("PypeCRM Helper")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setOngoing(true)
@@ -256,7 +256,7 @@ class CallMonitorService : Service() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID, "Call monitoring", NotificationManager.IMPORTANCE_LOW
-        ).apply { description = "Shows when Pype Call Recorder is watching for calls" }
+        ).apply { description = "Shows when PypeCRM Helper is watching for calls" }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 

@@ -18,7 +18,7 @@ class StatusScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pype Call Recorder'),
+        title: const Text('PypeCRM Helper'),
         actions: [
           IconButton(
             tooltip: 'Log out',
@@ -125,6 +125,10 @@ class _StatusCard extends ConsumerWidget {
             _StatRow(
               label: 'Call logs synced (metadata only, no audio)',
               value: '${status.tier4SuccessCount}',
+            ),
+            _StatRow(
+              label: 'WhatsApp replies logged',
+              value: '${status.whatsAppSyncCount}',
             ),
             if (!status.monitoringEnabled) ...[
               const SizedBox(height: 8),
