@@ -22,6 +22,11 @@ sealed class BulkSyncResult {
     data object Failed : BulkSyncResult()
 }
 
+sealed class HelperLogUploadResult {
+    data class Success(val stored: Int) : HelperLogUploadResult()
+    data object Failed : HelperLogUploadResult()
+}
+
 sealed class WhatsAppSyncResult {
     /** Logged to the CRM successfully. */
     data object Success : WhatsAppSyncResult()
@@ -155,6 +160,46 @@ class BackendApi(private val authPrefs: NativeAuthPrefs) {
                     BulkSyncResult.Failed
                 }
             }
+        }
+    }
+
+    /** `POST /api/android/helper-logs` — batches [entries] (each a
+     * `{event, detail, level, timestampMillis}` map, straight from
+     * [com.pypecrm.call_recording_engine.debug.EngineDebugLog.readSince])
+     * into the super-admin-visible HelperActivityLog feed. Best-effort
+     * diagnostics upload, never queued/retried on failure — the local ring
+     * buffer already keeps everything, so a lost upload just gets picked up
+     * on the next [com.pypecrm.call_recording_engine.sync.HelperLogUploader] run. */
+    fun uploadHelperLogs(entries: List<Map<String, Any?>>): HelperLogUploadResult {
+        val (token, base) = authOrNull() ?: return HelperLogUploadResult.Failed
+        val eventsJson = JSONArray()
+        for (entry in entries) {
+            eventsJson.put(
+                JSONObject().apply {
+                    put("event", entry["event"] as? String ?: "")
+                    put("detail", entry["detail"] as? String ?: "")
+                    put("level", entry["level"] as? String ?: "info")
+                    put("timestampMillis", (entry["timestampMillis"] as? Long) ?: 0L)
+                }
+            )
+        }
+        val payload = JSONObject().apply { put("events", eventsJson) }
+        val request = Request.Builder()
+            .url("$base/android/helper-logs")
+            .header("Authorization", "Bearer $token")
+            .post(payload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+            .build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "uploadHelperLogs failed: ${response.code}")
+                    return HelperLogUploadResult.Failed
+                }
+                HelperLogUploadResult.Success(entries.size)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "uploadHelperLogs network error", e)
+            HelperLogUploadResult.Failed
         }
     }
 

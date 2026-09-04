@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/auth/providers/session_provider.dart';
 import 'features/onboarding/presentation/screens/onboarding_screen.dart';
@@ -15,7 +16,7 @@ class CallRecorderApp extends StatelessWidget {
     return MaterialApp(
       title: 'PypeCRM Helper',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
+      theme: AppTheme.light,
       home: const _AuthGate(),
     );
   }

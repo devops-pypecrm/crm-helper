@@ -36,4 +36,42 @@ class EngineStatusController extends _$EngineStatusController {
     }
     await refresh();
   }
+
+  /// Manual "sync now" for the periodic call-log reconciliation — see
+  /// CallRecordingEngine.syncCallLogsNow's doc comment. The native side
+  /// just enqueues WorkManager work and returns immediately (no
+  /// completion callback exists), so this polls [getStatus] every couple
+  /// seconds and stops as soon as something visibly changed (or after a
+  /// bounded number of attempts) — long enough to cover the reconciler now
+  /// also attempting a Tier 0 MediaStore lookup + upload per backfilled
+  /// call, which can take a few seconds longer than a metadata-only sync.
+  /// Returns the before/after snapshot so the caller can report exactly
+  /// what changed, rather than just "sync started".
+  Future<({EngineStatus before, EngineStatus after})> syncCallLogsNow() async {
+    final engine = ref.read(callRecordingEngineProvider);
+    final before = state.valueOrNull ?? await engine.getStatus();
+
+    await engine.syncCallLogsNow();
+
+    var after = before;
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      after = await engine.getStatus();
+      state = AsyncValue.data(after);
+      final changed = after.lastSyncedAt != before.lastSyncedAt ||
+          after.totalSyncedCalls != before.totalSyncedCalls;
+      if (changed) break;
+    }
+
+    return (before: before, after: after);
+  }
 }
+
+/// One-shot read of the Phase 1 runtime-permission grants, used to show a
+/// plain "Call log history access: Granted" line on the Status screen —
+/// this permission is requested as part of the same onboarding "Required
+/// permissions" bundle as everything else, so there's no separate grant
+/// step for it, but its status wasn't visible anywhere outside onboarding.
+@riverpod
+Future<Map<String, bool>> enginePermissions(AutoDisposeFutureProviderRef<Map<String, bool>> ref) =>
+    ref.read(callRecordingEngineProvider).checkPermissions();

@@ -17,7 +17,10 @@ import org.json.JSONObject
 class EngineDebugLog(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun append(event: String, detail: String = "") {
+    /** [level] is "info" | "warn" | "error" — mirrors HelperActivityLog.level
+     * server-side (see HelperLogUploader), shown as a badge in the
+     * super-admin Helper Logs panel. */
+    fun append(event: String, detail: String = "", level: String = "info") {
         Log.d(TAG, "$event: $detail")
         synchronized(this) {
             val entries = readEntries()
@@ -25,6 +28,7 @@ class EngineDebugLog(context: Context) {
                 JSONObject().apply {
                     put("event", event)
                     put("detail", detail)
+                    put("level", level)
                     put("timestampMillis", System.currentTimeMillis())
                 }
             )
@@ -33,15 +37,22 @@ class EngineDebugLog(context: Context) {
         }
     }
 
-    /** Newest-first, as a list of `{event, detail, timestampMillis}` maps. */
+    /** Newest-first, as a list of `{event, detail, level, timestampMillis}` maps. */
     fun readAll(): List<Map<String, Any?>> =
         readEntries().asReversed().map { entry ->
             mapOf(
                 "event" to entry.optString("event"),
                 "detail" to entry.optString("detail"),
+                "level" to entry.optString("level", "info"),
                 "timestampMillis" to entry.optLong("timestampMillis"),
             )
         }
+
+    /** Same as [readAll] but ascending (oldest first) and only entries newer
+     * than [afterMillis] — what [HelperLogUploader] actually wants to send,
+     * since it needs to advance a watermark in chronological order. */
+    fun readSince(afterMillis: Long): List<Map<String, Any?>> =
+        readAll().asReversed().filter { (it["timestampMillis"] as? Long ?: 0L) > afterMillis }
 
     fun clear() {
         prefs.edit().remove(KEY_ENTRIES).apply()

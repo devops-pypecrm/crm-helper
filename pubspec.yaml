@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.1.4+6
 
 environment:
   sdk: ^3.12.2
@@ -62,6 +62,8 @@ dependencies:
   # WorkManager) — see packages/call_recording_engine.
   call_recording_engine:
     path: packages/call_recording_engine
+  path_provider: ^2.1.6
+  package_info_plus: ^9.0.1
 
 dev_dependencies:
   flutter_test:
@@ -81,11 +83,11 @@ dev_dependencies:
 
   flutter_launcher_icons: ^0.14.1
 
-# Source image for `dart run flutter_launcher_icons` — the same official
-# PypeCRM icon Dad-mobile uses (assets/icon/app_icon.png there), copied
-# here rather than fabricating separate branding for a companion app.
-# Android-only (this app has no ios/ platform folder). Regenerate with that
-# command if assets/icon/app_icon.png ever changes.
+# Source image for `dart run flutter_launcher_icons`. assets/icon/app_icon.png
+# is assets/newlogo.png cropped tight to its opaque content (the raw logo has
+# a lot of transparent padding, which made the launcher icon render small) —
+# regenerate that crop if assets/newlogo.png ever changes, then rerun this
+# command. Android-only (this app has no ios/ platform folder).
 flutter_launcher_icons:
   android: "launcher_icon"
   image_path: "assets/icon/app_icon.png"
@@ -103,6 +105,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/newlogo.png
     - assets/icon/app_icon.png
 
   # An image asset can refer to one or more resolution-specific "variants", see

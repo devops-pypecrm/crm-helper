@@ -138,6 +138,18 @@ class CallRecordingEngine {
   }
 
   Future<void> clearEngineDebugLog() => _channel.invokeMethod('clearEngineDebugLog');
+
+  /// Manually triggers the same reconcile-then-upload pass CallSyncWorker
+  /// already runs on its own (see CallLogReconciler) — this scans the
+  /// system CallLog for anything since the last watermark and queues it,
+  /// then flushes the upload queue. Enqueues WorkManager work and returns
+  /// immediately; re-check [getStatus] a few seconds later (or pull to
+  /// refresh) to see updated counts, not this call's return value.
+  Future<void> syncCallLogsNow() => _channel.invokeMethod('syncCallLogsNow');
+
+  /// Convenience constant for reading the READ_CALL_LOG entry out of
+  /// [checkPermissions]'s result map.
+  static const readCallLogPermission = 'android.permission.READ_CALL_LOG';
 }
 
 class EngineStatus {

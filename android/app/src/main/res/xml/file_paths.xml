@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the app's own cache dir is exposed — the update .apk is
+     downloaded there (see apk_installer.dart / ApkDownloadController)
+     before being handed to FileProvider for the install intent. -->
+<paths>
+    <cache-path name="update_apk" path="." />
+</paths>

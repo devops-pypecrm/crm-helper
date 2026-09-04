@@ -40,6 +40,10 @@
          not a manifest-declared runtime permission — this only lets
          ProjectionCaptureService declare its foregroundServiceType. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- In-app update install (ApkDownloadController / apk_installer.dart) —
+         lets the user grant "install unknown apps" for this app specifically
+         via canRequestInstalls()/openInstallPermissionSettings(). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:label="PypeCRM Helper"
@@ -80,6 +84,20 @@
              declared in packages/call_recording_engine's own manifest, which
              Gradle manifest-merges into this one — see that plugin's
              android/src/main/AndroidManifest.xml for the actual declarations. -->
+
+        <!-- In-app update install: the downloaded .apk lives in this app's own
+             cache dir and is exposed to the system installer as a content://
+             URI (a plain file:// path is blocked by StrictMode since Android 7).
+             See file_paths.xml and MainActivity.kt's installApk handler. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

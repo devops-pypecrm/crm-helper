@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters
 import com.pypecrm.call_recording_engine.data.CallEventDbHelper
 import com.pypecrm.call_recording_engine.data.EngineStats
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
+import com.pypecrm.call_recording_engine.debug.EngineDebugLog
 import com.pypecrm.call_recording_engine.net.BackendApi
 import com.pypecrm.call_recording_engine.net.BulkSyncResult
 import java.util.concurrent.TimeUnit
@@ -34,6 +35,13 @@ class CallSyncWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val authPrefs = NativeAuthPrefs(applicationContext)
         if (!authPrefs.isSignedIn()) return Result.success() // nothing to do, not logged in
 
+        // Local-only (no network, no rate limit) — runs on every periodic
+        // tick regardless of the bulk-sync throttle below, so a call the
+        // real-time path missed gets discovered promptly even while an
+        // upload is still cooling down. See CallLogReconciler's doc
+        // comment for why this can't just be part of the real-time path.
+        CallLogReconciler.reconcile(applicationContext, authPrefs)
+
         val engineStats = EngineStats(applicationContext)
         val now = System.currentTimeMillis()
         if (now < engineStats.nextBulkSyncAllowedAtMillis) {
@@ -43,24 +51,46 @@ class CallSyncWorker(context: Context, params: WorkerParameters) : CoroutineWork
 
         val dbHelper = CallEventDbHelper.getInstance(applicationContext)
         val pending = dbHelper.unsyncedEvents()
-        if (pending.isEmpty()) return Result.success()
-
-        val api = BackendApi(authPrefs)
-        return when (val result = api.bulkSync(pending)) {
-            is BulkSyncResult.Success -> {
-                dbHelper.markSynced(pending.map { it.id })
-                dbHelper.pruneSynced()
-                engineStats.recordTier4Success(System.currentTimeMillis(), result.count)
-                engineStats.nextBulkSyncAllowedAtMillis = System.currentTimeMillis() + COOLDOWN_MS
-                Result.success()
+        val workResult = if (pending.isEmpty()) {
+            Result.success()
+        } else {
+            val api = BackendApi(authPrefs)
+            when (val result = api.bulkSync(pending)) {
+                is BulkSyncResult.Success -> {
+                    dbHelper.markSynced(pending.map { it.id })
+                    dbHelper.pruneSynced()
+                    engineStats.recordTier4Success(System.currentTimeMillis(), result.count)
+                    engineStats.nextBulkSyncAllowedAtMillis = System.currentTimeMillis() + COOLDOWN_MS
+                    EngineDebugLog(applicationContext).append("BULK_SYNC_SUCCESS", "${result.count} call(s) synced")
+                    Result.success()
+                }
+                is BulkSyncResult.RateLimited -> {
+                    engineStats.nextBulkSyncAllowedAtMillis =
+                        System.currentTimeMillis() + result.retryAfterSeconds * 1000L
+                    EngineDebugLog(applicationContext).append(
+                        "BULK_SYNC_RATE_LIMITED",
+                        "retry in ${result.retryAfterSeconds}s",
+                        level = "warn",
+                    )
+                    Result.retry()
+                }
+                BulkSyncResult.Failed -> {
+                    EngineDebugLog(applicationContext).append(
+                        "BULK_SYNC_FAILED",
+                        "${pending.size} call(s) still pending",
+                        level = "error",
+                    )
+                    Result.retry()
+                }
             }
-            is BulkSyncResult.RateLimited -> {
-                engineStats.nextBulkSyncAllowedAtMillis =
-                    System.currentTimeMillis() + result.retryAfterSeconds * 1000L
-                Result.retry()
-            }
-            BulkSyncResult.Failed -> Result.retry()
         }
+
+        // Runs after bulk-sync so a just-logged BULK_SYNC_* event goes out
+        // in the same upload pass, not delayed to the next tick — best
+        // effort, never affects this worker's own success/retry outcome.
+        HelperLogUploader.upload(applicationContext, authPrefs)
+
+        return workResult
     }
 
     companion object {

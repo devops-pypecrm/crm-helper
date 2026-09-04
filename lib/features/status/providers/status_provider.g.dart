@@ -6,8 +6,32 @@ part of 'status_provider.dart';
 // RiverpodGenerator
 // **************************************************************************
 
+String _$enginePermissionsHash() => r'5afa07b82e500af3e85d62509b8c6f0c3c34369e';
+
+/// One-shot read of the Phase 1 runtime-permission grants, used to show a
+/// plain "Call log history access: Granted" line on the Status screen —
+/// this permission is requested as part of the same onboarding "Required
+/// permissions" bundle as everything else, so there's no separate grant
+/// step for it, but its status wasn't visible anywhere outside onboarding.
+///
+/// Copied from [enginePermissions].
+@ProviderFor(enginePermissions)
+final enginePermissionsProvider =
+    AutoDisposeFutureProvider<Map<String, bool>>.internal(
+      enginePermissions,
+      name: r'enginePermissionsProvider',
+      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+          ? null
+          : _$enginePermissionsHash,
+      dependencies: null,
+      allTransitiveDependencies: null,
+    );
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+typedef EnginePermissionsRef = AutoDisposeFutureProviderRef<Map<String, bool>>;
 String _$engineStatusControllerHash() =>
-    r'5540568b7e991085d2e867be6a1c552cd97dcb6f';
+    r'be41cf1c625fec87dbf9acce9252263dd164f13e';
 
 /// Polls the native engine's status every few seconds while the status
 /// screen is open — there's no push channel from native to Dart in Phase 1

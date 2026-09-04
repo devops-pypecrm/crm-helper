@@ -133,6 +133,16 @@ class CallRecordingEnginePlugin :
             "hasMediaProjectionToken" -> result.success(MediaProjectionTokenStore.hasToken())
             "requestMediaProjectionPermission" -> requestMediaProjectionPermission(result)
             "attemptEnableNativeCallRecording" -> attemptEnableNativeCallRecording(result)
+            "syncCallLogsNow" -> {
+                // User-visible manual trigger for the same reconcile-then-upload
+                // pass CallSyncWorker already runs on its own (periodic tick, or
+                // right after a call ends) — added because that automatic path
+                // is invisible: it reuses the READ_CALL_LOG grant from onboarding
+                // rather than asking for anything new, so there was previously no
+                // UI moment that showed the feature exists or is working.
+                CallSyncWorker.scheduleNow(appContext)
+                result.success(null)
+            }
             "getEngineDebugLog" -> result.success(EngineDebugLog(appContext).readAll())
             "clearEngineDebugLog" -> {
                 EngineDebugLog(appContext).clear()

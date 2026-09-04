@@ -3,6 +3,7 @@ package com.pypecrm.call_recording_engine.util
 import android.content.Context
 import android.provider.CallLog
 import android.util.Log
+import com.pypecrm.call_recording_engine.debug.EngineDebugLog
 import kotlinx.coroutines.delay
 
 data class CallLogDetails(
@@ -107,6 +108,19 @@ object CallLogLookup {
                 }
 
                 val typeStr = typeToString(chosen.typeInt)
+                if (typeStr == "UNKNOWN") {
+                    // A CallLog TYPE outside Android's own documented set
+                    // (1/2/3/4/5/6/7) — some OEMs use extra proprietary
+                    // values (dual-SIM/VoLTE bookkeeping, etc.). Logging the
+                    // raw int is the only way to ever find out what it was
+                    // and map it properly, since it's otherwise invisible.
+                    Log.w(TAG, "Unrecognized CallLog TYPE=${chosen.typeInt} for row ${chosen.id}")
+                    EngineDebugLog(context).append(
+                        "CALL_LOG_UNKNOWN_TYPE",
+                        "CallLog TYPE=${chosen.typeInt} not recognized (row ${chosen.id})",
+                        level = "warn",
+                    )
+                }
                 // Only trust this row once it looks finalized: a real
                 // duration, or a type that's legitimately always zero.
                 val isFinalized = chosen.duration > 0 || typeStr in FINAL_ZERO_DURATION_TYPES
@@ -130,8 +144,10 @@ object CallLogLookup {
         CallLog.Calls.INCOMING_TYPE -> "INCOMING"
         CallLog.Calls.OUTGOING_TYPE -> "OUTGOING"
         CallLog.Calls.MISSED_TYPE -> "MISSED"
+        CallLog.Calls.VOICEMAIL_TYPE -> "MISSED" // no distinct backend bucket for voicemail
         CallLog.Calls.REJECTED_TYPE -> "REJECTED"
         CallLog.Calls.BLOCKED_TYPE -> "BLOCKED"
+        CallLog.Calls.ANSWERED_EXTERNALLY_TYPE -> "INCOMING" // answered on a linked device — still inbound
         else -> "UNKNOWN"
     }
 

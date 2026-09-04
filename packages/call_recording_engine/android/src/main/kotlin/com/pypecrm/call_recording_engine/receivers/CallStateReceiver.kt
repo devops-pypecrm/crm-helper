@@ -7,6 +7,7 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import com.pypecrm.call_recording_engine.data.CallStatePrefs
 import com.pypecrm.call_recording_engine.data.EngineStats
+import com.pypecrm.call_recording_engine.debug.EngineDebugLog
 import com.pypecrm.call_recording_engine.service.CallMonitorService
 
 /**
@@ -67,6 +68,7 @@ class CallStateReceiver : BroadcastReceiver() {
                 if (callStatePrefs.isCallActive) return
                 callStatePrefs.isCallActive = true
                 callStatePrefs.callStartTimeMillis = System.currentTimeMillis()
+                EngineDebugLog(context).append("CALL_RINGING", "incoming call detected")
                 startMonitorService(context, CallMonitorService.ACTION_CALL_RINGING)
             }
             TelephonyManager.CALL_STATE_OFFHOOK -> {
@@ -78,11 +80,17 @@ class CallStateReceiver : BroadcastReceiver() {
                     callStatePrefs.callStartTimeMillis = System.currentTimeMillis()
                 }
                 callStatePrefs.likelyOutgoing = previousState != TelephonyManager.CALL_STATE_RINGING
+                EngineDebugLog(context).append(
+                    "CALL_ACTIVE",
+                    if (callStatePrefs.likelyOutgoing) "outgoing call connected" else "incoming call answered",
+                )
                 startMonitorService(context, CallMonitorService.ACTION_CALL_ACTIVE)
             }
             TelephonyManager.CALL_STATE_IDLE -> {
                 if (!callStatePrefs.isCallActive) return
                 callStatePrefs.isCallActive = false
+                val durationSecs = (System.currentTimeMillis() - callStatePrefs.callStartTimeMillis) / 1000
+                EngineDebugLog(context).append("CALL_ENDED", "duration=${durationSecs}s — handing off to CallMonitorService")
                 startMonitorService(context, CallMonitorService.ACTION_CALL_ENDED)
                 // Cleared only after the service reads it during call-end
                 // processing — not here, since CallMonitorService.handleCallEnded
