@@ -2,95 +2,49 @@ package com.pypecrm.call_recording_engine.dialer
 
 import android.app.Activity
 import android.app.role.RoleManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.telecom.PhoneAccount
-import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.util.Log
-import com.pypecrm.call_recording_engine.data.PhoneAccountPrefs
 import com.pypecrm.call_recording_engine.debug.EngineDebugLog
-import com.pypecrm.call_recording_engine.service.PypeConnectionService
 
 /**
- * Manages all interaction with Android's Telecom framework:
- *   - PhoneAccount registration (self-managed, CAPABILITY_SELF_MANAGED)
+ * Manages interaction with Android's Telecom framework needed to become
+ * (and place calls as) the default Phone app:
  *   - Default-dialer role request (RoleManager on API 29+, legacy intent below)
  *   - Outgoing call placement via TelecomManager.placeCall()
  *
- * Self-managed was chosen over fully-managed because:
- *   - The goal is CRM data capture, not being a general-purpose phone replacement
- *   - Self-managed gives us authoritative Connection lifecycle callbacks
- *     (direction, number, state) without requiring an InCallService or
- *     having to render Android's own in-call surfaces across OEM skins
- *   - Self-managed connections are exempted from emergency-call routing concerns
+ * Deliberately does NOT register a PhoneAccount or implement a
+ * ConnectionService. An earlier version of this feature did (a
+ * self-managed one), which was the wrong tool: a self-managed
+ * ConnectionService is for VoIP/OTT apps that provide their OWN calling
+ * backend, and Android explicitly does not consider such an app eligible
+ * to be the default Phone app — which is exactly why it never showed up in
+ * the system's "default apps" picker. There is also no way for a
+ * self-managed Connection to ever represent a real SIM call (nothing
+ * third-party code can do calls that) — the earlier code's `setDialing()`
+ * had no way to ever transition further, so the in-call UI's timer showing
+ * with no real call is the direct, expected consequence of that design.
  *
- * CAPABILITY_SELF_MANAGED means:
- *   - We show our own in-call UI (InCallScreen / IncomingCallScreen in Flutter)
- *   - Android's built-in in-call UI does NOT appear for our calls
- *   - We do NOT implement InCallService
- *   - Emergency calls are handled by the OS regardless of which app is default dialer
+ * The correct integration for a real Phone app is [PypeInCallService]: once
+ * this app holds the RoleManager.ROLE_DIALER role, Android delivers the
+ * REAL Call objects (created by the system's own telephony
+ * ConnectionService, tied to the SIM) to that service — for both calls we
+ * place here and calls placed to this device. See its class doc comment.
  */
 object TelecomDialerManager {
     private const val TAG = "TelecomDialerManager"
-    const val PHONE_ACCOUNT_ID = "pypecrm_dialer"
 
     // Request code used by CallRecordingEnginePlugin for the role-request intent result.
     const val REQUEST_CODE_SET_DEFAULT_DIALER = 4204
 
-    /** Stable PhoneAccountHandle — same component + ID across sessions. */
-    fun phoneAccountHandle(context: Context) = PhoneAccountHandle(
-        ComponentName(context.applicationContext, PypeConnectionService::class.java),
-        PHONE_ACCOUNT_ID
-    )
-
-    /**
-     * Registers (or re-registers) this app's self-managed PhoneAccount.
-     * TelecomManager.registerPhoneAccount() is itself idempotent, but we
-     * also update PhoneAccountPrefs so Dart can query registration state
-     * without an additional round-trip.
-     */
-    fun registerPhoneAccount(context: Context): Boolean {
-        return try {
-            val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
-                ?: return false.also { Log.e(TAG, "TelecomManager not available") }
-
-            val handle = phoneAccountHandle(context)
-            val account = PhoneAccount.builder(handle, "PypeCRM Dialer")
-                .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
-                .build()
-
-            telecom.registerPhoneAccount(account)
-            PhoneAccountPrefs(context).phoneAccountRegistered = true
-            EngineDebugLog(context).append(
-                "DIALER_PHONE_ACCOUNT_REGISTERED",
-                "Self-managed PhoneAccount registered with TelecomManager"
-            )
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register PhoneAccount", e)
-            EngineDebugLog(context).append(
-                "DIALER_PHONE_ACCOUNT_REGISTERED",
-                "FAILED: ${e.message}",
-                level = "error"
-            )
-            false
-        }
-    }
-
-    /**
-     * Returns true if this app is currently the system default dialer.
-     * Also caches the result in PhoneAccountPrefs.wasDefaultDialer.
-     */
+    /** Returns true if this app is currently the system default dialer. */
     fun isDefaultDialer(context: Context): Boolean {
         return try {
             val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
-            val result = telecom?.defaultDialerPackage == context.packageName
-            PhoneAccountPrefs(context).wasDefaultDialer = result
-            result
+            telecom?.defaultDialerPackage == context.packageName
         } catch (e: Exception) {
             Log.w(TAG, "Could not check default dialer status", e)
             false
@@ -134,13 +88,14 @@ object TelecomDialerManager {
     }
 
     /**
-     * Places an outgoing call via TelecomManager.placeCall() using our
-     * self-managed PhoneAccountHandle. Requires CALL_PHONE (dangerous,
-     * now in the required-permissions set) and MANAGE_OWN_CALLS (normal).
-     *
-     * The call is handed to PypeConnectionService.onCreateOutgoingConnection(),
-     * which creates a PypeConnection that fires CallMonitorService actions
-     * for recording/CRM sync — no duplicate logic here.
+     * Places an outgoing call via TelecomManager.placeCall() — no custom
+     * PhoneAccountHandle, so Telecom routes it through the SIM's own phone
+     * account (same as the stock dialer would). Requires CALL_PHONE. Once
+     * this app is the default dialer, [PypeInCallService.onCallAdded] fires
+     * for the resulting real Call, which is the only place actual call
+     * state (dialing/active/disconnected) comes from — this method's job
+     * ends at requesting the call, nothing here should be read as
+     * confirmation the call connected.
      */
     fun placeCall(context: Context, number: String) {
         try {
@@ -148,24 +103,21 @@ object TelecomDialerManager {
                 ?: return.also { Log.e(TAG, "TelecomManager unavailable") }
 
             val uri = Uri.fromParts("tel", number, null)
-            val extras = android.os.Bundle().apply {
-                putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccountHandle(context))
-            }
-            telecom.placeCall(uri, extras)
+            telecom.placeCall(uri, null)
             EngineDebugLog(context).append(
-                "DIALER_CALL_PLACED",
-                "Outgoing call placed to ${number.take(4)}*** via TelecomManager"
+                "DIALER_CALL_REQUESTED",
+                "Outgoing call requested to ${number.take(4)}*** via TelecomManager"
             )
         } catch (e: SecurityException) {
             Log.e(TAG, "CALL_PHONE permission missing", e)
             EngineDebugLog(context).append(
-                "DIALER_CALL_PLACED",
+                "DIALER_CALL_REQUESTED",
                 "FAILED — missing CALL_PHONE: ${e.message}",
                 level = "error"
             )
         } catch (e: Exception) {
             Log.e(TAG, "placeCall failed", e)
-            EngineDebugLog(context).append("DIALER_CALL_PLACED", "FAILED: ${e.message}", level = "error")
+            EngineDebugLog(context).append("DIALER_CALL_REQUESTED", "FAILED: ${e.message}", level = "error")
         }
     }
 }

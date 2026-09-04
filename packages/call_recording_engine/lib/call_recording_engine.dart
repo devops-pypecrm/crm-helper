@@ -148,13 +148,11 @@ class CallRecordingEngine {
   Future<void> syncCallLogsNow() => _channel.invokeMethod('syncCallLogsNow');
 
   // ── Dialer / Telecom ──────────────────────────────────────────────────────
-
-  /// Registers (or re-registers) this app's self-managed PhoneAccount with
-  /// Android's Telecom framework. Safe to call multiple times — idempotent
-  /// on both the Kotlin and TelecomManager side. Returns true on success.
-  /// Must be called before [placeCall] and ideally at app startup after login.
-  Future<bool> registerPhoneAccount() async =>
-      (await _channel.invokeMethod<bool>('registerPhoneAccount')) ?? false;
+  //
+  // No PhoneAccount registration here — this app doesn't implement a
+  // ConnectionService. Real calls are the system's own SIM-backed calls;
+  // once this app holds the default-dialer role, PypeInCallService
+  // (native) receives them directly. See that class's doc comment.
 
   /// Returns true if this app is currently the system default dialer.
   /// Re-checks the live Telecom state every call — don't cache the result.
@@ -162,17 +160,48 @@ class CallRecordingEngine {
       (await _channel.invokeMethod<bool>('isDefaultDialer')) ?? false;
 
   /// Opens the system dialog asking the user to set this app as the default
-  /// dialer. Returns true if the user granted the role, false otherwise.
-  /// Requires a foreground Activity — call from the UI only.
+  /// dialer. Requests CALL_PHONE/ANSWER_PHONE_CALLS/READ_CONTACTS first if
+  /// needed. Requires a foreground Activity — call from the UI only. The
+  /// actual outcome should be read back with [isDefaultDialer] once the
+  /// user returns to the app, not this call's return value alone.
   Future<bool> requestDefaultDialerRole() async =>
       (await _channel.invokeMethod<bool>('requestDefaultDialerRole')) ?? false;
 
-  /// Places an outgoing call via TelecomManager using our self-managed
-  /// PhoneAccountHandle. The call flows through [PypeConnectionService] →
-  /// [PypeConnection] → [CallMonitorService] for recording/sync — no
-  /// additional steps needed after calling this.
+  /// Requests that Telecom place a real call to [number] through the SIM's
+  /// own phone account (same as the stock dialer). This only requests the
+  /// call — it does NOT mean the call connected. Actual state
+  /// (dialing/ringing/active/disconnected) only ever comes from
+  /// [callEvents], pushed once this app is the default dialer and
+  /// PypeInCallService receives the resulting real Call object.
   Future<void> placeCall(String number) =>
       _channel.invokeMethod('placeCall', {'number': number});
+
+  Future<void> answerCall() => _channel.invokeMethod('answerCall');
+  Future<void> rejectCall() => _channel.invokeMethod('rejectCall');
+  Future<void> endCall() => _channel.invokeMethod('endCall');
+  Future<void> setCallHold(bool onHold) => _channel.invokeMethod('setCallHold', {'onHold': onHold});
+  Future<void> setCallMuted(bool muted) => _channel.invokeMethod('setCallMuted', {'muted': muted});
+  Future<void> setCallSpeakerOn(bool on) => _channel.invokeMethod('setCallSpeakerOn', {'on': on});
+  Future<void> playDtmfTone(String digit) => _channel.invokeMethod('playDtmfTone', {'digit': digit});
+
+  /// Looks up [number] against the device's own phone/SIM contacts (not
+  /// the CRM) — requires READ_CONTACTS, part of the dialer permission set.
+  /// Returns null if no contact matches or the permission isn't granted.
+  Future<String?> lookupContactName(String number) =>
+      _channel.invokeMethod<String?>('lookupContactName', {'number': number});
+
+  static const _callEventsChannel = EventChannel('com.pypecrm.recorder/call_events');
+
+  /// The ONLY source of truth for real call state — `{state, number,
+  /// isOutgoing}` maps pushed from PypeInCallService whenever Android's
+  /// actual Call object changes state (NEW/DIALING/RINGING/ACTIVE/
+  /// DISCONNECTED/...). Nothing in this app should ever simulate or guess
+  /// at in-call state locally; an earlier version of the dialer feature did
+  /// (a hardcoded delay before showing "in call"), which is exactly why it
+  /// showed a running timer with no real call ever connected.
+  Stream<Map<String, Object?>> get callEvents => _callEventsChannel
+      .receiveBroadcastStream()
+      .map((event) => Map<String, Object?>.from(event as Map));
 
   /// Convenience constant for reading the READ_CALL_LOG entry out of
   /// [checkPermissions]'s result map.

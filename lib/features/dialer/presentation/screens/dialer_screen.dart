@@ -12,6 +12,12 @@ import 'incoming_call_screen.dart';
 /// The main dialer tab — numeric keypad, digit display, and the green call
 /// button. Automatically navigates to [InCallScreen] or [IncomingCallScreen]
 /// when the dialer state transitions away from idle.
+///
+/// Sizes itself with [LayoutBuilder] rather than fixed dimensions: this tab
+/// lives inside the app's bottom-nav shell (AppBar + NavigationBar both eat
+/// into available height), and a fixed keypad size that was fine on one
+/// screen overflowed on a shorter/lower-density one — the exact "off
+/// screen" glitch this replaces.
 class DialerScreen extends ConsumerStatefulWidget {
   const DialerScreen({super.key});
 
@@ -41,94 +47,113 @@ class _DialerScreenState extends ConsumerState<DialerScreen> {
     final digits = dialerState is DialerIdle ? dialerState.digits : '';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Dialer')),
-      body: Column(
-        children: [
-          // ── Digit display ───────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 32, 24, 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Reserve space for everything that isn't a keypad row, then
+            // divide what's left across the 4 rows + call button so the
+            // whole keypad always fits — matching how Google's Phone app
+            // dialpad scales to fill the screen without ever scrolling.
+            const displayHeight = 72.0;
+            const chipHeight = 40.0;
+            const callButtonBlock = 96.0; // button + surrounding spacing
+            const rows = 4;
+
+            final remaining = constraints.maxHeight - displayHeight - chipHeight - callButtonBlock;
+            final rowHeight = (remaining / rows).clamp(56.0, 84.0);
+            final buttonSize = (rowHeight - 8).clamp(52.0, 72.0);
+
+            return Column(
               children: [
-                Expanded(
-                  child: Text(
-                    digits.isEmpty ? '' : digits,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 36,
-                      fontWeight: FontWeight.w300,
-                      letterSpacing: 4,
+                // ── Digit display ───────────────────────────────────────
+                SizedBox(
+                  height: displayHeight,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              digits,
+                              style: const TextStyle(
+                                fontSize: 34,
+                                fontWeight: FontWeight.w300,
+                                letterSpacing: 3,
+                              ),
+                              maxLines: 1,
+                            ),
+                          ),
+                        ),
+                        if (digits.isNotEmpty)
+                          IconButton(
+                            icon: const Icon(Icons.backspace_outlined),
+                            onPressed: notifier.backspace,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                      ],
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (digits.isNotEmpty)
-                  IconButton(
-                    icon: const Icon(Icons.backspace_outlined),
-                    onPressed: notifier.backspace,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                SizedBox(height: chipHeight, child: const Center(child: LeadMatchChip())),
+                // ── Keypad ──────────────────────────────────────────────
+                for (final row in const [
+                  [
+                    ['1', ''],
+                    ['2', 'ABC'],
+                    ['3', 'DEF'],
+                  ],
+                  [
+                    ['4', 'GHI'],
+                    ['5', 'JKL'],
+                    ['6', 'MNO'],
+                  ],
+                  [
+                    ['7', 'PQRS'],
+                    ['8', 'TUV'],
+                    ['9', 'WXYZ'],
+                  ],
+                  [
+                    ['*', ''],
+                    ['0', '+'],
+                    ['#', ''],
+                  ],
+                ])
+                  SizedBox(
+                    height: rowHeight,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        for (final key in row)
+                          KeypadButton(
+                            label: key[0],
+                            sublabel: key[1],
+                            size: buttonSize,
+                            onPressed: () => notifier.pressDigit(key[0]),
+                            onLongPress: key[0] == '0' ? () => notifier.pressDigit('+') : null,
+                          ),
+                      ],
+                    ),
                   ),
+                // ── Call button ─────────────────────────────────────────
+                SizedBox(
+                  height: callButtonBlock,
+                  child: Center(
+                    child: CallActionButton(
+                      icon: Icons.call,
+                      color: kBrandColor,
+                      size: buttonSize,
+                      onPressed: digits.isNotEmpty ? () => notifier.placeCall(digits) : null,
+                    ),
+                  ),
+                ),
               ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          const LeadMatchChip(),
-          const SizedBox(height: 16),
-          // ── Keypad ──────────────────────────────────────────────────────
-          Expanded(
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _KeypadRow(digits: const ['1', '2', '3'], subs: const ['', 'ABC', 'DEF'], notifier: notifier),
-                  _KeypadRow(digits: const ['4', '5', '6'], subs: const ['GHI', 'JKL', 'MNO'], notifier: notifier),
-                  _KeypadRow(digits: const ['7', '8', '9'], subs: const ['PQRS', 'TUV', 'WXYZ'], notifier: notifier),
-                  _KeypadRow(digits: const ['*', '0', '#'], subs: const ['', '+', ''], notifier: notifier),
-                  const SizedBox(height: 24),
-                  // Call button
-                  CallActionButton(
-                    icon: Icons.call,
-                    color: kBrandColor,
-                    onPressed: digits.isNotEmpty ? () => notifier.placeCall(digits) : null,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 32),
-        ],
-      ),
-    );
-  }
-}
-
-class _KeypadRow extends StatelessWidget {
-  const _KeypadRow({
-    required this.digits,
-    required this.subs,
-    required this.notifier,
-  });
-
-  final List<String> digits;
-  final List<String> subs;
-  final DialerNotifier notifier;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          for (int i = 0; i < digits.length; i++)
-            KeypadButton(
-              label: digits[i],
-              sublabel: subs[i],
-              onPressed: () => notifier.pressDigit(digits[i]),
-              onLongPress: digits[i] == '0' ? () => notifier.pressDigit('+') : null,
-            ),
-        ],
+            );
+          },
+        ),
       ),
     );
   }

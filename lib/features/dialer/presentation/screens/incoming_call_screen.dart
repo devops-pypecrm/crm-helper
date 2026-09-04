@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../providers/caller_name_provider.dart';
 import '../../providers/dialer_provider.dart';
 import '../../providers/dialer_state.dart';
 import '../widgets/keypad_button.dart';
@@ -28,7 +29,7 @@ class IncomingCallScreen extends ConsumerWidget {
     });
 
     final number = dialerState is DialerIncoming ? dialerState.number : '';
-    final leadName = dialerState is DialerIncoming ? dialerState.leadMatch?.name : null;
+    final leadName = number.isEmpty ? null : ref.watch(callerDisplayNameProvider(number)).valueOrNull;
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F1F0F),

@@ -41,19 +41,25 @@
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
-        <!-- Phase 1+: self-managed Telecom ConnectionService — gives
-             authoritative call direction, number, and state from the
-             Telecom framework instead of TelephonyManager broadcasts.
-             CAPABILITY_SELF_MANAGED: we render our own in-call UI;
-             Android's built-in in-call UI never appears for our calls.
-             Only the OS may bind to a ConnectionService
-             (BIND_TELECOM_CONNECTION_SERVICE). -->
+        <!-- The real default-Phone-app integration: once this app holds
+             RoleManager.ROLE_DIALER, Android delivers the actual Call
+             objects (created by the system's own SIM-backed telephony
+             ConnectionService) here — see PypeInCallService's doc comment
+             for why this replaced an earlier self-managed
+             ConnectionService, which could never represent a real call.
+             Only the OS may bind to an InCallService
+             (BIND_INCALL_SERVICE); IN_CALL_SERVICE_UI marks this as the
+             one that should render the call UI (required to be selectable
+             as the default dialer). -->
         <service
-            android:name=".service.PypeConnectionService"
-            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
+            android:name=".dialer.PypeInCallService"
+            android:permission="android.permission.BIND_INCALL_SERVICE"
             android:exported="true">
+            <meta-data
+                android:name="android.telecom.IN_CALL_SERVICE_UI"
+                android:value="true" />
             <intent-filter>
-                <action android:name="android.telecom.ConnectionService" />
+                <action android:name="android.telecom.InCallService" />
             </intent-filter>
         </service>
 

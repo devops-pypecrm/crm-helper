@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/caller_name_provider.dart';
 import '../../providers/dialer_provider.dart';
 import '../../providers/dialer_state.dart';
 import '../widgets/call_controls_row.dart';
@@ -27,26 +28,26 @@ class InCallScreen extends ConsumerWidget {
     });
 
     String number;
-    String? leadName;
     DateTime? callStart;
     bool isActive;
 
     if (dialerState is DialerDialing) {
       number = dialerState.number;
-      leadName = dialerState.leadMatch?.name;
       callStart = null;
       isActive = false;
     } else if (dialerState is DialerInCall) {
       number = dialerState.number;
-      leadName = dialerState.leadMatch?.name;
       callStart = dialerState.startedAt;
       isActive = true;
     } else {
       number = '';
-      leadName = null;
       callStart = null;
       isActive = false;
     }
+
+    // CRM lead first, then the phone's own contacts — see
+    // callerDisplayNameProvider's doc comment.
+    final leadName = number.isEmpty ? null : ref.watch(callerDisplayNameProvider(number)).valueOrNull;
 
     return Scaffold(
       backgroundColor: const Color(0xFF1C2B1C), // dark brand green

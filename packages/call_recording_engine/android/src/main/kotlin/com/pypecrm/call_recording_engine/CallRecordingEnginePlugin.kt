@@ -14,18 +14,20 @@ import com.pypecrm.call_recording_engine.accessibility.CallRecordingAccessibilit
 import com.pypecrm.call_recording_engine.data.EngineStats
 import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
-import com.pypecrm.call_recording_engine.data.PhoneAccountPrefs
 import com.pypecrm.call_recording_engine.debug.EngineDebugLog
+import com.pypecrm.call_recording_engine.dialer.CallEventBridge
 import com.pypecrm.call_recording_engine.dialer.TelecomDialerManager
 import com.pypecrm.call_recording_engine.service.CallMonitorService
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
 import com.pypecrm.call_recording_engine.sync.WhatsAppSyncWorker
 import com.pypecrm.call_recording_engine.util.AccessibilityUtils
 import com.pypecrm.call_recording_engine.util.AutoStartHelper
+import com.pypecrm.call_recording_engine.util.ContactsUtils
 import com.pypecrm.call_recording_engine.util.NotificationListenerUtils
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
@@ -67,6 +69,12 @@ class CallRecordingEnginePlugin :
         appContext = binding.applicationContext
         channel = MethodChannel(binding.binaryMessenger, "com.pypecrm.recorder/engine")
         channel.setMethodCallHandler(this)
+        // Real Call state (RINGING/DIALING/ACTIVE/DISCONNECTED), pushed from
+        // PypeInCallService via CallEventBridge — see that class's doc
+        // comment for why this replaced the earlier fake, timer-only
+        // in-call UI transition.
+        EventChannel(binding.binaryMessenger, "com.pypecrm.recorder/call_events")
+            .setStreamHandler(CallEventBridge)
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
@@ -118,10 +126,6 @@ class CallRecordingEnginePlugin :
             }
             "clearAuthForNative" -> {
                 NativeAuthPrefs(appContext).clear()
-                // Also clear the PhoneAccount registration flag so a fresh
-                // login always re-registers (avoids stale handles across
-                // org/user switches).
-                PhoneAccountPrefs(appContext).clear()
                 result.success(null)
             }
             "isIgnoringBatteryOptimizations" ->
@@ -156,8 +160,10 @@ class CallRecordingEnginePlugin :
                 result.success(null)
             }
             // ── Dialer / Telecom ──────────────────────────────────────────────
-            "registerPhoneAccount" ->
-                result.success(TelecomDialerManager.registerPhoneAccount(appContext))
+            // No "registerPhoneAccount" — this app doesn't register a
+            // PhoneAccount/ConnectionService at all (see TelecomDialerManager's
+            // doc comment for why that was the wrong approach). Real calls
+            // are delivered via PypeInCallService once we hold ROLE_DIALER.
             "isDefaultDialer" ->
                 result.success(TelecomDialerManager.isDefaultDialer(appContext))
             "requestDefaultDialerRole" -> {
@@ -197,6 +203,30 @@ class CallRecordingEnginePlugin :
                     return
                 }
                 TelecomDialerManager.placeCall(appContext, number)
+                result.success(null)
+            }
+            "answerCall" -> { CallEventBridge.answer(); result.success(null) }
+            "rejectCall" -> { CallEventBridge.reject(); result.success(null) }
+            "endCall" -> { CallEventBridge.hangup(); result.success(null) }
+            "setCallHold" -> {
+                CallEventBridge.setHold(call.argument<Boolean>("onHold") == true)
+                result.success(null)
+            }
+            "setCallMuted" -> {
+                CallEventBridge.setMuted(call.argument<Boolean>("muted") == true)
+                result.success(null)
+            }
+            "setCallSpeakerOn" -> {
+                CallEventBridge.setSpeakerOn(call.argument<Boolean>("on") == true)
+                result.success(null)
+            }
+            "lookupContactName" -> {
+                val number = call.argument<String>("number")
+                result.success(if (number != null) ContactsUtils.lookupName(appContext, number) else null)
+            }
+            "playDtmfTone" -> {
+                val digit = call.argument<String>("digit")?.firstOrNull()
+                if (digit != null) CallEventBridge.playDtmf(digit)
                 result.success(null)
             }
             else -> result.notImplemented()

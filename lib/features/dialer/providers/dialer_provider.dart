@@ -1,21 +1,76 @@
+import 'dart:async';
+
 import 'package:call_recording_engine/call_recording_engine.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../features/status/providers/engine_provider.dart';
 import 'dialer_state.dart';
 
-/// Owns the dialer's call lifecycle state. Call-state transitions come from
-/// the Flutter UI (key presses, answer/decline/end buttons) — the Kotlin side
-/// (PypeConnection) drives the *recording* path independently; this provider
-/// only drives the Flutter UI state machine.
+/// Owns the dialer's call lifecycle state. ALL in-call state transitions
+/// (dialing → active → disconnected, or an incoming call ringing) come
+/// exclusively from [CallRecordingEngine.callEvents] — the real Android
+/// Call object's state, pushed from PypeInCallService (native). This
+/// provider does not simulate or guess at call state; an earlier version
+/// did (a hardcoded delay before showing "in call" regardless of whether a
+/// real call ever connected), which is exactly why the in-call screen used
+/// to show a running timer with no call actually happening.
 ///
-/// NOTE: Phase 1 ships with this provider available but not yet wired to
-/// any real incoming-call push. Phase 2 will connect it to a MethodChannel
-/// event from PypeConnectionService for incoming-call UI.
+/// Placing a call only WORKS the way this screen expects (i.e. produces
+/// events this provider can see) once the app holds the default-dialer
+/// role — see [PypeInCallService]'s doc comment. If it doesn't,
+/// TelecomManager still places the call, but Android delivers it to
+/// whichever app IS the default dialer (usually the stock Phone app), so
+/// this provider has no way to know what happened — [_dialTimeout] bounds
+/// how long we wait in [DialerDialing] before giving up and returning to
+/// idle, rather than getting stuck forever.
 class DialerNotifier extends StateNotifier<DialerState> {
-  DialerNotifier(this._engine) : super(const DialerIdle());
+  DialerNotifier(this._engine) : super(const DialerIdle()) {
+    _eventsSub = _engine.callEvents.listen(_onCallEvent, onError: (_) {});
+  }
 
   final CallRecordingEngine _engine;
+  late final StreamSubscription<Map<String, Object?>> _eventsSub;
+  Timer? _dialTimeout;
+
+  @override
+  void dispose() {
+    _eventsSub.cancel();
+    _dialTimeout?.cancel();
+    super.dispose();
+  }
+
+  void _onCallEvent(Map<String, Object?> event) {
+    final callState = event['state'] as String?;
+    final number = event['number'] as String? ?? '';
+    final isOutgoing = event['isOutgoing'] as bool? ?? false;
+
+    switch (callState) {
+      case 'RINGING':
+        if (!isOutgoing) {
+          _dialTimeout?.cancel();
+          state = DialerIncoming(number: number);
+        }
+      case 'DIALING':
+      case 'CONNECTING':
+        _dialTimeout?.cancel();
+        state = DialerDialing(number: number);
+      case 'ACTIVE':
+        _dialTimeout?.cancel();
+        final current = state;
+        state = DialerInCall(
+          number: number,
+          startedAt: DateTime.now(),
+          isOutgoing: isOutgoing,
+          leadMatch: current is DialerIncoming
+              ? current.leadMatch
+              : (current is DialerDialing ? current.leadMatch : null),
+        );
+      case 'DISCONNECTED':
+      case 'DISCONNECTING':
+        _dialTimeout?.cancel();
+        state = const DialerIdle();
+    }
+  }
 
   // ── Keypad ────────────────────────────────────────────────────────────────
 
@@ -45,73 +100,63 @@ class DialerNotifier extends StateNotifier<DialerState> {
     if (number.isEmpty) return;
     state = DialerDialing(number: number);
     try {
-      // Ensure PhoneAccount is registered before placing the call.
-      await _engine.registerPhoneAccount();
       await _engine.placeCall(number);
-      // PypeConnection will transition state to ACTIVE via the incoming
-      // MethodChannel event in Phase 2. For now, we move to DialerInCall
-      // optimistically after a short delay so the UI doesn't get stuck.
-      await Future.delayed(const Duration(seconds: 2));
-      if (state is DialerDialing) {
-        state = DialerInCall(
-          number: number,
-          startedAt: DateTime.now(),
-          isOutgoing: true,
-        );
-      }
     } catch (e) {
       state = const DialerIdle();
+      return;
     }
+    // Bounds how long we wait for a real callEvents update (see class doc
+    // comment) — most likely to fire if this app isn't the default dialer,
+    // so the call was handed off to a different app entirely.
+    _dialTimeout?.cancel();
+    _dialTimeout = Timer(const Duration(seconds: 20), () {
+      if (state is DialerDialing) state = const DialerIdle();
+    });
   }
 
-  // ── In-call controls ──────────────────────────────────────────────────────
+  // ── In-call controls — all proxy to the real Call object natively ────────
 
   void toggleMute() {
     if (state is DialerInCall) {
       final s = state as DialerInCall;
-      state = s.copyWith(muted: !s.muted);
+      final next = !s.muted;
+      _engine.setCallMuted(next);
+      state = s.copyWith(muted: next);
     }
   }
 
   void toggleSpeaker() {
     if (state is DialerInCall) {
       final s = state as DialerInCall;
-      state = s.copyWith(speakerOn: !s.speakerOn);
+      final next = !s.speakerOn;
+      _engine.setCallSpeakerOn(next);
+      state = s.copyWith(speakerOn: next);
     }
   }
 
   void toggleHold() {
     if (state is DialerInCall) {
       final s = state as DialerInCall;
-      state = s.copyWith(onHold: !s.onHold);
+      final next = !s.onHold;
+      _engine.setCallHold(next);
+      state = s.copyWith(onHold: next);
     }
   }
 
   void endCall() {
-    // The actual teardown goes via PypeConnection.onDisconnect() on the
-    // Kotlin side; here we just return the UI to idle.
+    _engine.endCall();
+    // Actual teardown is confirmed by the DISCONNECTED event above; this
+    // just reflects the user's action immediately so the button feels
+    // responsive.
     state = const DialerIdle();
   }
 
-  // ── Incoming call (Phase 2: triggered by MethodChannel event) ────────────
+  // ── Incoming call ─────────────────────────────────────────────────────────
 
-  void onIncomingCall(String number) {
-    state = DialerIncoming(number: number);
-  }
-
-  void answerCall() {
-    if (state is DialerIncoming) {
-      final inc = state as DialerIncoming;
-      state = DialerInCall(
-        number: inc.number,
-        startedAt: DateTime.now(),
-        isOutgoing: false,
-        leadMatch: inc.leadMatch,
-      );
-    }
-  }
+  void answerCall() => _engine.answerCall();
 
   void declineCall() {
+    _engine.rejectCall();
     state = const DialerIdle();
   }
 }
