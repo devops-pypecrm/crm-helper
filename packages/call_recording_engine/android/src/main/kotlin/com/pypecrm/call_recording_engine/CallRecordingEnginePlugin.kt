@@ -167,8 +167,28 @@ class CallRecordingEnginePlugin :
                     return
                 }
                 pendingDefaultDialerResult = result
-                TelecomDialerManager.requestDefaultDialerRole(currentActivity)
-                // Result delivered via onActivityResult -> pendingDefaultDialerResult
+                // CALL_PHONE/ANSWER_PHONE_CALLS/READ_CONTACTS are requested
+                // here — lazily, only when the user actually opts into the
+                // dialer role — NOT bundled into requiredPermissions(). They
+                // used to be, which silently forced every already-onboarded
+                // user back through onboarding on update (checkPermissions()
+                // gates _PostLoginGate's onboarding-vs-main-shell decision in
+                // app.dart) until they granted three permissions unrelated to
+                // the base call-recording feature — a real regression, fixed
+                // here by decoupling the two permission sets entirely.
+                val missingDialerPermissions = dialerPermissions().filter {
+                    ContextCompat.checkSelfPermission(appContext, it) != PackageManager.PERMISSION_GRANTED
+                }
+                if (missingDialerPermissions.isEmpty()) {
+                    TelecomDialerManager.requestDefaultDialerRole(currentActivity)
+                } else {
+                    ActivityCompat.requestPermissions(
+                        currentActivity, missingDialerPermissions.toTypedArray(), DIALER_PERMISSION_REQUEST_CODE
+                    )
+                }
+                // Result delivered via onRequestPermissionsResult (if
+                // permissions were requested first) then onActivityResult ->
+                // pendingDefaultDialerResult.
             }
             "placeCall" -> {
                 val number = call.argument<String>("number")
@@ -199,16 +219,6 @@ class CallRecordingEnginePlugin :
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CALL_LOG,
             Manifest.permission.RECORD_AUDIO,
-            // Dialer role: CALL_PHONE to place calls, ANSWER_PHONE_CALLS to
-            // answer via PypeConnection. MANAGE_OWN_CALLS is a normal
-            // permission (granted at install) so it's not listed here.
-            // READ_CONTACTS for CRM lead-name matching while dialing.
-            // Manifest must always match this list — see the class-level doc
-            // comment on CallRecordingEnginePlugin for why we own these
-            // explicitly rather than delegating to a generic plugin.
-            Manifest.permission.CALL_PHONE,
-            Manifest.permission.ANSWER_PHONE_CALLS,
-            Manifest.permission.READ_CONTACTS,
         )
         permissions += if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             Manifest.permission.READ_MEDIA_AUDIO
@@ -220,6 +230,15 @@ class CallRecordingEnginePlugin :
         }
         return permissions.toTypedArray()
     }
+
+    /** Dialer-role-only permissions — deliberately NOT part of
+     * [requiredPermissions] (see the doc comment where they're requested,
+     * in [onMethodCall]'s "requestDefaultDialerRole" branch, for why). */
+    private fun dialerPermissions(): Array<String> = arrayOf(
+        Manifest.permission.CALL_PHONE,
+        Manifest.permission.ANSWER_PHONE_CALLS,
+        Manifest.permission.READ_CONTACTS,
+    )
 
     private fun checkPermissions(): Map<String, Boolean> =
         requiredPermissions().associateWith {
@@ -248,10 +267,31 @@ class CallRecordingEnginePlugin :
         permissions: Array<out String>,
         grantResults: IntArray,
     ): Boolean {
-        if (requestCode != PERMISSION_REQUEST_CODE) return false
-        pendingPermissionResult?.success(checkPermissions())
-        pendingPermissionResult = null
-        return true
+        when (requestCode) {
+            PERMISSION_REQUEST_CODE -> {
+                pendingPermissionResult?.success(checkPermissions())
+                pendingPermissionResult = null
+                return true
+            }
+            DIALER_PERMISSION_REQUEST_CODE -> {
+                // Proceed to the default-dialer role request regardless of
+                // whether the user granted every dialer permission here —
+                // denying e.g. READ_CONTACTS shouldn't block setting the
+                // role itself; placeCall() already handles a missing
+                // CALL_PHONE grant gracefully if that one was denied.
+                val currentActivity = activity
+                if (currentActivity != null) {
+                    TelecomDialerManager.requestDefaultDialerRole(currentActivity)
+                } else {
+                    pendingDefaultDialerResult?.error(
+                        "no_activity", "No Activity attached to request default-dialer role", null
+                    )
+                    pendingDefaultDialerResult = null
+                }
+                return true
+            }
+            else -> return false
+        }
     }
 
     /** Opens system Settings > Accessibility so the user can enable
@@ -396,6 +436,7 @@ class CallRecordingEnginePlugin :
     companion object {
         private const val PERMISSION_REQUEST_CODE = 4202
         private const val PROJECTION_REQUEST_CODE = 4203
+        private const val DIALER_PERMISSION_REQUEST_CODE = 4205
         // 4204 is TelecomDialerManager.REQUEST_CODE_SET_DEFAULT_DIALER
     }
 }
