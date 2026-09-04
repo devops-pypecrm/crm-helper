@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/auth/providers/session_provider.dart';
+import 'features/dialer/presentation/screens/call_log_screen.dart';
+import 'features/dialer/presentation/screens/dialer_screen.dart';
 import 'features/onboarding/presentation/screens/onboarding_screen.dart';
 import 'features/status/presentation/screens/status_screen.dart';
 import 'features/status/providers/engine_provider.dart';
@@ -22,10 +24,8 @@ class CallRecorderApp extends StatelessWidget {
   }
 }
 
-/// No router package for a 3-screen app — a single gate widget that swaps
-/// between login/onboarding/status based on [sessionControllerProvider] is
-/// simpler than wiring up go_router (which Dad-mobile uses, but for a much
-/// larger route table) for equivalent behavior here.
+/// No router package for a small app — a single gate widget that swaps
+/// between login/onboarding/main-shell based on [sessionControllerProvider].
 class _AuthGate extends ConsumerWidget {
   const _AuthGate();
 
@@ -44,7 +44,7 @@ class _AuthGate extends ConsumerWidget {
   }
 }
 
-/// Decides between onboarding and the status screen once — permissions
+/// Decides between onboarding and the main bottom-nav shell once — permissions
 /// granted implies onboarding was already completed at some point, so a
 /// returning already-set-up user doesn't have to click through it on every
 /// cold start. Keyed on the user id so switching accounts on the same
@@ -81,8 +81,63 @@ class _PostLoginGateState extends ConsumerState<_PostLoginGate> {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-        return (snapshot.data ?? true) ? const OnboardingScreen() : const StatusScreen();
+        return (snapshot.data ?? true)
+            ? const OnboardingScreen()
+            : const _MainShell();
       },
     );
   }
 }
+
+/// Bottom-navigation shell hosting the three main tabs:
+///   0 — Status (existing monitoring/sync status)
+///   1 — Dialer (keypad for placing calls)
+///   2 — Recent calls (dialer's own call log)
+class _MainShell extends StatefulWidget {
+  const _MainShell();
+
+  @override
+  State<_MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends State<_MainShell> {
+  int _selectedIndex = 0;
+
+  static const _screens = [
+    StatusScreen(),
+    DialerScreen(),
+    CallLogScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: _screens,
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (i) => setState(() => _selectedIndex = i),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.monitor_heart_outlined),
+            selectedIcon: Icon(Icons.monitor_heart),
+            label: 'Status',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.dialpad_outlined),
+            selectedIcon: Icon(Icons.dialpad),
+            label: 'Dialer',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.history_outlined),
+            selectedIcon: Icon(Icons.history),
+            label: 'Recents',
+          ),
+        ],
+      ),
+    );
+  }
+}
+

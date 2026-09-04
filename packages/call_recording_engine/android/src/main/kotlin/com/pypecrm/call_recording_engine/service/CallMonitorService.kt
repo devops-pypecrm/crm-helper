@@ -22,6 +22,7 @@ import com.pypecrm.call_recording_engine.net.BackendApi
 import com.pypecrm.call_recording_engine.recorder.CallAudioRecorder
 import com.pypecrm.call_recording_engine.scanner.NativeRecordingScanner
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
+import com.pypecrm.call_recording_engine.util.CallLogDetails
 import com.pypecrm.call_recording_engine.util.CallLogLookup
 import com.pypecrm.call_recording_engine.util.PhoneNumberUtils
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +42,13 @@ import java.io.File
  * call, mirroring the reference implementation's approach.
  * [CallStateReceiver] is what's always alive across reboots (via its
  * manifest registration); it hands off to this service on each call.
+ *
+ * Additionally, [PypeConnection] (the self-managed Telecom ConnectionService
+ * path) fires the same action constants when the app is the default dialer,
+ * and attaches [EXTRA_CALLED_FROM_DIALER], [EXTRA_PHONE_NUMBER], and
+ * [EXTRA_IS_OUTGOING] extras so [handleCallEnded] can skip [CallLogLookup]
+ * entirely — direction and number are already authoritative from the
+ * Connection, so there's nothing to infer.
  *
  * Fallback order at call-end is Tier 0 (OEM native-recorder file, best
  * quality) → Tier 1/2 (our own MediaRecorder capture, started live at
@@ -65,6 +73,14 @@ class CallMonitorService : Service() {
      * lookup, upload-or-queue) in that case, so [handleCallEnded] must not
      * also process it (would double-queue/double-upload). */
     @Volatile private var tier3Delegated = false
+
+    // Set from EXTRA_CALLED_FROM_DIALER / EXTRA_PHONE_NUMBER / EXTRA_IS_OUTGOING
+    // when the call was placed/answered via PypeConnectionService (the dialer path).
+    // When set, handleCallEnded() skips CallLogLookup — direction and number are
+    // already authoritative from the Connection.
+    @Volatile private var calledFromDialer = false
+    @Volatile private var dialerPhoneNumber: String? = null
+    @Volatile private var dialerIsOutgoing: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -93,6 +109,17 @@ class CallMonitorService : Service() {
         ServiceCompat.startForeground(
             this, NOTIFICATION_ID, buildNotification(statusTextFor(intent?.action)), foregroundTypeFor(intent?.action)
         )
+
+        // Capture dialer-path extras before branching on action.
+        // These are only present when PypeConnection fired the intent (the dialer
+        // path); for the legacy CallStateReceiver path they remain at their defaults.
+        intent?.let {
+            if (it.getBooleanExtra(EXTRA_CALLED_FROM_DIALER, false)) {
+                calledFromDialer = true
+                dialerPhoneNumber = it.getStringExtra(EXTRA_PHONE_NUMBER)
+                dialerIsOutgoing = it.getBooleanExtra(EXTRA_IS_OUTGOING, false)
+            }
+        }
 
         when (intent?.action) {
             ACTION_CALL_ACTIVE -> jobScope.launch { startLiveCaptureIfAllowed() }
@@ -147,15 +174,39 @@ class CallMonitorService : Service() {
         }
 
         val startedAt = callStatePrefs.callStartTimeMillis
-        val expectedNumberSuffix = PhoneNumberUtils.last10Digits(callStatePrefs.expectedNumber)
-        callStatePrefs.expectedNumber = null // consumed — don't leak into the next call
-        // Read the tier BEFORE stop() — it resets to null.
         val capturedTier = audioRecorder.activeTier
         val liveFile = if (audioRecorder.isRecording) audioRecorder.stop() else null
 
-        val details = CallLogLookup.awaitLatestCallDetails(
-            this, startedAt, expectedNumberSuffix.ifEmpty { null }
-        )
+        // Dialer path: direction and number are already authoritative from
+        // PypeConnection — skip CallLogLookup entirely.
+        val details: CallLogDetails?
+        val fromDialer = calledFromDialer
+        val dialerNumber = dialerPhoneNumber
+        if (fromDialer && !dialerNumber.isNullOrBlank()) {
+            // Reset dialer flags for the next call BEFORE any await.
+            calledFromDialer = false
+            dialerPhoneNumber = null
+            val callType = if (dialerIsOutgoing) "OUTGOING" else "INCOMING"
+            val durationSecs = ((System.currentTimeMillis() - startedAt) / 1000).coerceAtLeast(0)
+            details = CallLogDetails(
+                phoneNumber = dialerNumber,
+                durationSeconds = durationSecs.toInt(),
+                callType = callType,
+                timestampMillis = startedAt,
+                hardwareId = "dialer_${startedAt}",
+            )
+            Log.d(TAG, "handleCallEnded: dialer path — number=${dialerNumber.take(4)}***, type=$callType")
+        } else {
+            // Legacy path (CallStateReceiver): infer from CallLog.
+            calledFromDialer = false
+            dialerPhoneNumber = null
+            val expectedNumberSuffix = PhoneNumberUtils.last10Digits(callStatePrefs.expectedNumber)
+            callStatePrefs.expectedNumber = null // consumed — don't leak into the next call
+            details = CallLogLookup.awaitLatestCallDetails(
+                this, startedAt, expectedNumberSuffix.ifEmpty { null }
+            )
+        }
+
         if (details == null) {
             Log.w(TAG, "Call ended but no CallLog entry appeared — nothing to sync.")
             liveFile?.delete()
@@ -285,5 +336,11 @@ class CallMonitorService : Service() {
         const val ACTION_CALL_ACTIVE = "com.pypecrm.call_recording_engine.action.CALL_ACTIVE"
         const val ACTION_CALL_ENDED = "com.pypecrm.call_recording_engine.action.CALL_ENDED"
         const val ACTION_STOP = "com.pypecrm.call_recording_engine.action.STOP"
+
+        // Extras added by PypeConnection (the dialer path) so handleCallEnded()
+        // can use authoritative metadata instead of polling CallLogLookup.
+        const val EXTRA_CALLED_FROM_DIALER = "called_from_dialer"
+        const val EXTRA_PHONE_NUMBER = "phone_number"
+        const val EXTRA_IS_OUTGOING = "is_outgoing"
     }
 }

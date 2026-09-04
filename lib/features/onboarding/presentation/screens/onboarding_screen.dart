@@ -28,6 +28,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   bool _accessibilityEnabled = false;
   bool _hasProjectionToken = false;
   bool _whatsAppListenerEnabled = false;
+  bool _isDefaultDialer = false;
   bool _loading = true;
 
   @override
@@ -43,6 +44,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final accessibilityEnabled = await engine.isAccessibilityServiceEnabled();
     final hasProjectionToken = await engine.hasMediaProjectionToken();
     final whatsAppListenerEnabled = await engine.isWhatsAppListenerEnabled();
+    final isDefaultDialer = await engine.isDefaultDialer();
     if (!mounted) return;
     setState(() {
       _permissions = permissions;
@@ -50,6 +52,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _accessibilityEnabled = accessibilityEnabled;
       _hasProjectionToken = hasProjectionToken;
       _whatsAppListenerEnabled = whatsAppListenerEnabled;
+      _isDefaultDialer = isDefaultDialer;
       _loading = false;
     });
   }
@@ -93,6 +96,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     await ref.read(callRecordingEngineProvider).openNotificationListenerSettings();
     // The user has to find and toggle it by hand in system Settings —
     // refresh once they return rather than assuming it happened.
+    await _refresh();
+  }
+
+  Future<void> _requestDefaultDialerRole() async {
+    await ref.read(callRecordingEngineProvider).requestDefaultDialerRole();
+    // Re-check after the user returns from the OS dialog.
     await _refresh();
   }
 
@@ -149,6 +158,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   done: null, // Not independently verifiable — always offered.
                   actionLabel: 'Open settings',
                   onAction: _openAutoStart,
+                ),
+                _OnboardingStep(
+                  title: 'Set as default Phone app',
+                  subtitle: _isDefaultDialer
+                      ? 'Set — calls are tracked directly via Android Telecom. '
+                          'Call direction and number are always authoritative.'
+                      : 'Recommended: gives authoritative call direction and number '
+                          'regardless of OEM, and unlocks the built-in dialer. '
+                          'Your current dialer continues to work until you choose otherwise.',
+                  done: _isDefaultDialer,
+                  actionLabel: 'Set as default',
+                  onAction: _requestDefaultDialerRole,
                 ),
                 const SizedBox(height: 24),
                 Text('Advanced (optional)', style: Theme.of(context).textTheme.titleSmall),
