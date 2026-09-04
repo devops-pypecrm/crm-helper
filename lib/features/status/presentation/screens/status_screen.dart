@@ -10,6 +10,7 @@ import '../../../updates/presentation/screens/updates_screen.dart';
 import '../../../updates/presentation/widgets/update_banner.dart';
 import '../../../updates/providers/app_update_provider.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../providers/engine_provider.dart';
 import '../../providers/status_provider.dart';
 
 class StatusScreen extends ConsumerWidget {
@@ -114,11 +115,20 @@ class _StatusCard extends ConsumerStatefulWidget {
 class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProviderStateMixin {
   late final AnimationController _syncIconController;
   bool _isSyncing = false;
+  bool _isDefaultDialer = false;
 
   @override
   void initState() {
     super.initState();
     _syncIconController = AnimationController(vsync: this, duration: const Duration(seconds: 1));
+    _loadDialerStatus();
+  }
+
+  Future<void> _loadDialerStatus() async {
+    try {
+      final result = await ref.read(callRecordingEngineProvider).isDefaultDialer();
+      if (mounted) setState(() => _isDefaultDialer = result);
+    } catch (_) {}
   }
 
   @override
@@ -237,6 +247,10 @@ class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProvi
             _StatRow(
               label: 'Call log history access',
               value: callLogGranted ? 'Granted' : 'Not granted',
+            ),
+            _StatRow(
+              label: 'Default dialer',
+              value: _isDefaultDialer ? 'Active' : 'Inactive',
             ),
             _StatRow(
               label: 'WhatsApp replies logged',

@@ -147,6 +147,33 @@ class CallRecordingEngine {
   /// refresh) to see updated counts, not this call's return value.
   Future<void> syncCallLogsNow() => _channel.invokeMethod('syncCallLogsNow');
 
+  // ── Dialer / Telecom ──────────────────────────────────────────────────────
+
+  /// Registers (or re-registers) this app's self-managed PhoneAccount with
+  /// Android's Telecom framework. Safe to call multiple times — idempotent
+  /// on both the Kotlin and TelecomManager side. Returns true on success.
+  /// Must be called before [placeCall] and ideally at app startup after login.
+  Future<bool> registerPhoneAccount() async =>
+      (await _channel.invokeMethod<bool>('registerPhoneAccount')) ?? false;
+
+  /// Returns true if this app is currently the system default dialer.
+  /// Re-checks the live Telecom state every call — don't cache the result.
+  Future<bool> isDefaultDialer() async =>
+      (await _channel.invokeMethod<bool>('isDefaultDialer')) ?? false;
+
+  /// Opens the system dialog asking the user to set this app as the default
+  /// dialer. Returns true if the user granted the role, false otherwise.
+  /// Requires a foreground Activity — call from the UI only.
+  Future<bool> requestDefaultDialerRole() async =>
+      (await _channel.invokeMethod<bool>('requestDefaultDialerRole')) ?? false;
+
+  /// Places an outgoing call via TelecomManager using our self-managed
+  /// PhoneAccountHandle. The call flows through [PypeConnectionService] →
+  /// [PypeConnection] → [CallMonitorService] for recording/sync — no
+  /// additional steps needed after calling this.
+  Future<void> placeCall(String number) =>
+      _channel.invokeMethod('placeCall', {'number': number});
+
   /// Convenience constant for reading the READ_CALL_LOG entry out of
   /// [checkPermissions]'s result map.
   static const readCallLogPermission = 'android.permission.READ_CALL_LOG';

@@ -14,7 +14,9 @@ import com.pypecrm.call_recording_engine.accessibility.CallRecordingAccessibilit
 import com.pypecrm.call_recording_engine.data.EngineStats
 import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
+import com.pypecrm.call_recording_engine.data.PhoneAccountPrefs
 import com.pypecrm.call_recording_engine.debug.EngineDebugLog
+import com.pypecrm.call_recording_engine.dialer.TelecomDialerManager
 import com.pypecrm.call_recording_engine.service.CallMonitorService
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
 import com.pypecrm.call_recording_engine.sync.WhatsAppSyncWorker
@@ -59,6 +61,7 @@ class CallRecordingEnginePlugin :
     private var activity: Activity? = null
     private var pendingPermissionResult: Result? = null
     private var pendingProjectionResult: Result? = null
+    private var pendingDefaultDialerResult: Result? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -115,6 +118,10 @@ class CallRecordingEnginePlugin :
             }
             "clearAuthForNative" -> {
                 NativeAuthPrefs(appContext).clear()
+                // Also clear the PhoneAccount registration flag so a fresh
+                // login always re-registers (avoids stale handles across
+                // org/user switches).
+                PhoneAccountPrefs(appContext).clear()
                 result.success(null)
             }
             "isIgnoringBatteryOptimizations" ->
@@ -148,6 +155,30 @@ class CallRecordingEnginePlugin :
                 EngineDebugLog(appContext).clear()
                 result.success(null)
             }
+            // ── Dialer / Telecom ──────────────────────────────────────────────
+            "registerPhoneAccount" ->
+                result.success(TelecomDialerManager.registerPhoneAccount(appContext))
+            "isDefaultDialer" ->
+                result.success(TelecomDialerManager.isDefaultDialer(appContext))
+            "requestDefaultDialerRole" -> {
+                val currentActivity = activity
+                if (currentActivity == null) {
+                    result.error("no_activity", "No Activity attached to request default-dialer role", null)
+                    return
+                }
+                pendingDefaultDialerResult = result
+                TelecomDialerManager.requestDefaultDialerRole(currentActivity)
+                // Result delivered via onActivityResult -> pendingDefaultDialerResult
+            }
+            "placeCall" -> {
+                val number = call.argument<String>("number")
+                if (number.isNullOrBlank()) {
+                    result.error("bad_args", "number is required", null)
+                    return
+                }
+                TelecomDialerManager.placeCall(appContext, number)
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
@@ -168,6 +199,16 @@ class CallRecordingEnginePlugin :
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CALL_LOG,
             Manifest.permission.RECORD_AUDIO,
+            // Dialer role: CALL_PHONE to place calls, ANSWER_PHONE_CALLS to
+            // answer via PypeConnection. MANAGE_OWN_CALLS is a normal
+            // permission (granted at install) so it's not listed here.
+            // READ_CONTACTS for CRM lead-name matching while dialing.
+            // Manifest must always match this list — see the class-level doc
+            // comment on CallRecordingEnginePlugin for why we own these
+            // explicitly rather than delegating to a generic plugin.
+            Manifest.permission.CALL_PHONE,
+            Manifest.permission.ANSWER_PHONE_CALLS,
+            Manifest.permission.READ_CONTACTS,
         )
         permissions += if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             Manifest.permission.READ_MEDIA_AUDIO
@@ -291,11 +332,33 @@ class CallRecordingEnginePlugin :
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
-        if (requestCode != PROJECTION_REQUEST_CODE) return false
-        MediaProjectionTokenStore.store(resultCode, data)
-        pendingProjectionResult?.success(MediaProjectionTokenStore.hasToken())
-        pendingProjectionResult = null
-        return true
+        when (requestCode) {
+            PROJECTION_REQUEST_CODE -> {
+                MediaProjectionTokenStore.store(resultCode, data)
+                pendingProjectionResult?.success(MediaProjectionTokenStore.hasToken())
+                pendingProjectionResult = null
+                return true
+            }
+            TelecomDialerManager.REQUEST_CODE_SET_DEFAULT_DIALER -> {
+                val isNowDefault = TelecomDialerManager.isDefaultDialer(appContext)
+                if (isNowDefault) {
+                    EngineDebugLog(appContext).append(
+                        "DIALER_SET_AS_DEFAULT",
+                        "User granted default-dialer role to PypeCRM Helper"
+                    )
+                } else {
+                    EngineDebugLog(appContext).append(
+                        "DIALER_UNSET_AS_DEFAULT",
+                        "User did not grant default-dialer role (or revoked it)",
+                        level = "warn"
+                    )
+                }
+                pendingDefaultDialerResult?.success(isNowDefault)
+                pendingDefaultDialerResult = null
+                return true
+            }
+        }
+        return false
     }
 
     /** Always startForegroundService — even for [CallMonitorService.ACTION_STOP]
@@ -333,5 +396,6 @@ class CallRecordingEnginePlugin :
     companion object {
         private const val PERMISSION_REQUEST_CODE = 4202
         private const val PROJECTION_REQUEST_CODE = 4203
+        // 4204 is TelecomDialerManager.REQUEST_CODE_SET_DEFAULT_DIALER
     }
 }

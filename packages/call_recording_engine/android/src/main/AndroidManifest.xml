@@ -41,6 +41,22 @@
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
+        <!-- Phase 1+: self-managed Telecom ConnectionService — gives
+             authoritative call direction, number, and state from the
+             Telecom framework instead of TelephonyManager broadcasts.
+             CAPABILITY_SELF_MANAGED: we render our own in-call UI;
+             Android's built-in in-call UI never appears for our calls.
+             Only the OS may bind to a ConnectionService
+             (BIND_TELECOM_CONNECTION_SERVICE). -->
+        <service
+            android:name=".service.PypeConnectionService"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+
         <!-- Tier 2: merely existing and being enabled by the user in
              system Settings > Accessibility unlocks
              MediaRecorder.AudioSource.VOICE_RECOGNITION as an in-call audio
