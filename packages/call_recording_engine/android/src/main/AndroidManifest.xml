@@ -50,13 +50,22 @@
              Only the OS may bind to an InCallService
              (BIND_INCALL_SERVICE); IN_CALL_SERVICE_UI marks this as the
              one that should render the call UI (required to be selectable
-             as the default dialer). -->
+             as the default dialer). Per Android's own "Build a default
+             phone application" guide, ROLE_DIALER candidacy requires BOTH
+             IN_CALL_SERVICE_UI (ongoing-call UI) AND IN_CALL_SERVICE_RINGING
+             (incoming-call UI) — declaring only the first (as an earlier
+             version of this manifest did) is exactly the kind of gap that
+             can leave an app missing from the system's "Default apps >
+             Phone app" picker entirely. -->
         <service
             android:name=".dialer.PypeInCallService"
             android:permission="android.permission.BIND_INCALL_SERVICE"
             android:exported="true">
             <meta-data
                 android:name="android.telecom.IN_CALL_SERVICE_UI"
+                android:value="true" />
+            <meta-data
+                android:name="android.telecom.IN_CALL_SERVICE_RINGING"
                 android:value="true" />
             <intent-filter>
                 <action android:name="android.telecom.InCallService" />

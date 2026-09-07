@@ -172,6 +172,19 @@ class CallRecordingEnginePlugin :
                     result.error("no_activity", "No Activity attached to request default-dialer role", null)
                     return
                 }
+                if (pendingDefaultDialerResult != null) {
+                    // A request is already in flight — a second tap before
+                    // the first one's dialog resolved would otherwise cancel
+                    // it (Android auto-denies an in-flight
+                    // requestPermissions() the moment a new one is issued),
+                    // which is exactly what was happening on rapid re-taps.
+                    android.util.Log.w(
+                        "CallRecordingEnginePlugin",
+                        "requestDefaultDialerRole ignored — already in flight"
+                    )
+                    result.error("already_in_flight", "A default-dialer request is already pending", null)
+                    return
+                }
                 pendingDefaultDialerResult = result
                 // CALL_PHONE/ANSWER_PHONE_CALLS/READ_CONTACTS are requested
                 // here — lazily, only when the user actually opts into the
@@ -185,16 +198,63 @@ class CallRecordingEnginePlugin :
                 val missingDialerPermissions = dialerPermissions().filter {
                     ContextCompat.checkSelfPermission(appContext, it) != PackageManager.PERMISSION_GRANTED
                 }
-                if (missingDialerPermissions.isEmpty()) {
-                    TelecomDialerManager.requestDefaultDialerRole(currentActivity)
+                // shouldShowRequestPermissionRationale()=false while still
+                // ungranted means one of two things: "never asked yet" (the
+                // very first request) or "permanently denied" (asked
+                // before, denied enough times the OS stopped showing a
+                // dialog at all — requestPermissions() then returns DENIED
+                // in ~50ms with no dialog, exactly what was happening
+                // here). Those two cases are indistinguishable from that
+                // flag alone, so a persisted "have we asked before" marker
+                // disambiguates them — only treat it as permanent denial
+                // once we know this isn't the first attempt.
+                val dialerPermsPrefs = appContext.getSharedPreferences("dialer_permissions_state", Context.MODE_PRIVATE)
+                val askedBefore = dialerPermsPrefs.getBoolean("asked_before", false)
+                val permanentlyDenied = if (askedBefore) {
+                    missingDialerPermissions.filter {
+                        !ActivityCompat.shouldShowRequestPermissionRationale(currentActivity, it)
+                    }
                 } else {
-                    ActivityCompat.requestPermissions(
-                        currentActivity, missingDialerPermissions.toTypedArray(), DIALER_PERMISSION_REQUEST_CODE
-                    )
+                    emptyList()
+                }
+                dialerPermsPrefs.edit().putBoolean("asked_before", true).apply()
+                android.util.Log.i(
+                    "CallRecordingEnginePlugin",
+                    "requestDefaultDialerRole called; missingDialerPermissions=$missingDialerPermissions " +
+                        "permanentlyDenied=$permanentlyDenied"
+                )
+                when {
+                    missingDialerPermissions.isEmpty() -> {
+                        TelecomDialerManager.requestDefaultDialerRole(currentActivity)
+                    }
+                    permanentlyDenied.isNotEmpty() -> {
+                        android.util.Log.w(
+                            "CallRecordingEnginePlugin",
+                            "Opening app Settings — $permanentlyDenied can no longer be requested via dialog"
+                        )
+                        try {
+                            currentActivity.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = android.net.Uri.fromParts("package", currentActivity.packageName, null)
+                                }
+                            )
+                        } catch (e: Exception) {
+                            android.util.Log.e("CallRecordingEnginePlugin", "Could not open app Settings", e)
+                        }
+                        pendingDefaultDialerResult?.success(false)
+                        pendingDefaultDialerResult = null
+                    }
+                    else -> {
+                        ActivityCompat.requestPermissions(
+                            currentActivity, missingDialerPermissions.toTypedArray(), DIALER_PERMISSION_REQUEST_CODE
+                        )
+                    }
                 }
                 // Result delivered via onRequestPermissionsResult (if
                 // permissions were requested first) then onActivityResult ->
-                // pendingDefaultDialerResult.
+                // pendingDefaultDialerResult — except the Settings-redirect
+                // branch above, which resolves immediately since there's no
+                // in-app dialog/result to wait for.
             }
             "placeCall" -> {
                 val number = call.argument<String>("number")
@@ -410,6 +470,10 @@ class CallRecordingEnginePlugin :
                 return true
             }
             TelecomDialerManager.REQUEST_CODE_SET_DEFAULT_DIALER -> {
+                android.util.Log.i(
+                    "CallRecordingEnginePlugin",
+                    "onActivityResult SET_DEFAULT_DIALER: resultCode=$resultCode (RESULT_OK=${Activity.RESULT_OK})"
+                )
                 val isNowDefault = TelecomDialerManager.isDefaultDialer(appContext)
                 if (isNowDefault) {
                     EngineDebugLog(appContext).append(

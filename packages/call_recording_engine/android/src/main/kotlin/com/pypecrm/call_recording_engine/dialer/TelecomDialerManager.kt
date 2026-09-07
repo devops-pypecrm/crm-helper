@@ -63,15 +63,24 @@ object TelecomDialerManager {
     fun requestDefaultDialerRole(activity: Activity) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = activity.getSystemService(RoleManager::class.java)
-            if (roleManager.isRoleAvailable(RoleManager.ROLE_DIALER) &&
-                !roleManager.isRoleHeld(RoleManager.ROLE_DIALER)
-            ) {
-                activity.startActivityForResult(
-                    roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER),
-                    REQUEST_CODE_SET_DEFAULT_DIALER
-                )
+            val available = roleManager.isRoleAvailable(RoleManager.ROLE_DIALER)
+            val held = roleManager.isRoleHeld(RoleManager.ROLE_DIALER)
+            Log.i(TAG, "requestDefaultDialerRole: available=$available held=$held")
+            if (available && !held) {
+                try {
+                    activity.startActivityForResult(
+                        roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER),
+                        REQUEST_CODE_SET_DEFAULT_DIALER
+                    )
+                    Log.i(TAG, "requestDefaultDialerRole: role-request intent launched")
+                } catch (e: Exception) {
+                    Log.e(TAG, "requestDefaultDialerRole: failed to launch role-request intent", e)
+                }
+            } else if (!available) {
+                Log.w(TAG, "requestDefaultDialerRole: ROLE_DIALER not available on this device/OEM")
+            } else {
+                Log.i(TAG, "requestDefaultDialerRole: role already held, nothing to do")
             }
-            // Already held — no-op; caller re-checks isDefaultDialer().
         } else {
             val intent = Intent(TelecomManager.ACTION_CHANGE_DEFAULT_DIALER).apply {
                 putExtra(

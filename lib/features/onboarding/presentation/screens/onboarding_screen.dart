@@ -30,6 +30,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   bool _whatsAppListenerEnabled = false;
   bool _isDefaultDialer = false;
   bool _loading = true;
+  // Guards against a rapid double/triple-tap re-issuing the permission
+  // request before the system dialog from the first tap has been
+  // answered — Android cancels (auto-denies) an in-flight
+  // requestPermissions() call the moment a new one is issued from the same
+  // Activity, so repeated taps were silently steamrolling each other and
+  // the dialog never got a chance to actually show.
+  bool _settingDefaultDialer = false;
 
   @override
   void initState() {
@@ -100,9 +107,22 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _requestDefaultDialerRole() async {
-    await ref.read(callRecordingEngineProvider).requestDefaultDialerRole();
-    // Re-check after the user returns from the OS dialog.
-    await _refresh();
+    if (_settingDefaultDialer) return;
+    setState(() => _settingDefaultDialer = true);
+    try {
+      // Bounded wait: if the OS never returns a result for the role-request
+      // intent (observed on at least one real device — no dialog ever
+      // appears, nothing crashes, it just never comes back), this must not
+      // leave the button stuck spinning forever.
+      await ref
+          .read(callRecordingEngineProvider)
+          .requestDefaultDialerRole()
+          .timeout(const Duration(seconds: 15), onTimeout: () => false);
+      // Re-check after the user returns from the OS dialog.
+      await _refresh();
+    } finally {
+      if (mounted) setState(() => _settingDefaultDialer = false);
+    }
   }
 
   Future<void> _finish() async {
@@ -170,6 +190,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   done: _isDefaultDialer,
                   actionLabel: 'Set as default',
                   onAction: _requestDefaultDialerRole,
+                  busy: _settingDefaultDialer,
                 ),
                 const SizedBox(height: 24),
                 Text('Advanced (optional)', style: Theme.of(context).textTheme.titleSmall),
@@ -254,6 +275,7 @@ class _OnboardingStep extends StatelessWidget {
     required this.done,
     required this.actionLabel,
     required this.onAction,
+    this.busy = false,
   });
 
   final String title;
@@ -264,6 +286,10 @@ class _OnboardingStep extends StatelessWidget {
   final bool? done;
   final String actionLabel;
   final VoidCallback onAction;
+  /// True while a request this step triggered is in flight — disables the
+  /// button so a rapid re-tap can't fire a second native request before the
+  /// first one's system dialog has had a chance to show/complete.
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -278,7 +304,13 @@ class _OnboardingStep extends StatelessWidget {
         subtitle: Text(subtitle),
         trailing: (done == true)
             ? null
-            : TextButton(onPressed: onAction, child: Text(actionLabel)),
+            : (busy
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : TextButton(onPressed: onAction, child: Text(actionLabel))),
       ),
     );
   }
