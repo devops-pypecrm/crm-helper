@@ -7,9 +7,17 @@ import 'features/auth/providers/session_provider.dart';
 import 'features/onboarding/presentation/screens/onboarding_screen.dart';
 import 'features/status/presentation/screens/status_screen.dart';
 import 'features/status/providers/engine_provider.dart';
+import 'features/updates/presentation/widgets/update_checker_overlay.dart';
 
 class CallRecorderApp extends StatelessWidget {
   const CallRecorderApp({super.key});
+
+  // A named key rather than relying on MaterialApp's own default navigator
+  // is needed so UpdateCheckerOverlay — mounted as a *sibling* of the
+  // Navigator via `builder` below, not a descendant of it — can still push
+  // the Updates screen and find a dialog-hosting context when a new
+  // release shows up, regardless of which of the 3 screens is on top.
+  static final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   Widget build(BuildContext context) {
@@ -17,6 +25,13 @@ class CallRecorderApp extends StatelessWidget {
       title: 'PypeCRM Helper',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      navigatorKey: _navigatorKey,
+      builder: (context, child) => Stack(
+        children: [
+          ?child,
+          UpdateCheckerOverlay(navigatorKey: _navigatorKey),
+        ],
+      ),
       home: const _AuthGate(),
     );
   }

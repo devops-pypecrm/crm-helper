@@ -7,11 +7,15 @@ import '../../providers/apk_download_controller.dart';
 import '../../providers/app_update_provider.dart';
 
 /// Sits at the top of the Status screen when a newer build is published —
-/// this app has no push notifications wired up (see this feature's own
-/// build notes), so it's checked on every app open/pull-to-refresh instead
-/// of appearing as a popup. Handles the whole download -> install-permission
-/// -> hand-off-to-installer flow inline, matching Dad-mobile's Updates
-/// screen but condensed into one card for this 3-screen utility app.
+/// a persistent, always-visible companion to [UpdateCheckerOverlay]'s
+/// pop-up dialog (which only fires once per un-dismissed release). This app
+/// still has no push notifications wired up (no Firebase/FCM integration
+/// exists here at all, unlike Dad-mobile — see this feature's own build
+/// notes before adding one), so both of these rely on the update check
+/// running on app open/pull-to-refresh rather than a server-pushed nudge.
+/// Handles the whole download -> install-permission -> hand-off-to-installer
+/// flow inline, matching Dad-mobile's Updates screen but condensed into one
+/// card for this 3-screen utility app.
 class UpdateBanner extends ConsumerWidget {
   const UpdateBanner({super.key});
 

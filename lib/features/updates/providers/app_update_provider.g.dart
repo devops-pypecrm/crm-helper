@@ -67,5 +67,33 @@ final availableUpdateProvider = AutoDisposeFutureProvider<AppRelease?>.internal(
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef AvailableUpdateRef = AutoDisposeFutureProviderRef<AppRelease?>;
+String _$pendingUpdatePromptHash() =>
+    r'2fe458df56e8a22804ad6b97252e316cdd4d0ff6';
+
+/// The single thing the app-wide popup actually watches: an update exists
+/// AND it isn't the one the user already dismissed with "Later" this
+/// build. Mirrors Dad-mobile's identical availableUpdate + dismissed-memory
+/// combination — see that app's app_update_provider.dart doc comments for
+/// why this is kept as its own tiny derived step instead of folded into
+/// [availableUpdate] directly (keeping "is there an update" and "should I
+/// nag about it" as two separate questions is what makes the dismiss
+/// behavior easy to get right).
+///
+/// Copied from [pendingUpdatePrompt].
+@ProviderFor(pendingUpdatePrompt)
+final pendingUpdatePromptProvider =
+    AutoDisposeFutureProvider<AppRelease?>.internal(
+      pendingUpdatePrompt,
+      name: r'pendingUpdatePromptProvider',
+      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+          ? null
+          : _$pendingUpdatePromptHash,
+      dependencies: null,
+      allTransitiveDependencies: null,
+    );
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+typedef PendingUpdatePromptRef = AutoDisposeFutureProviderRef<AppRelease?>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package
