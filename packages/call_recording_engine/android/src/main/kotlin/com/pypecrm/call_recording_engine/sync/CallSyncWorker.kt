@@ -57,11 +57,24 @@ class CallSyncWorker(context: Context, params: WorkerParameters) : CoroutineWork
             val api = BackendApi(authPrefs)
             when (val result = api.bulkSync(pending)) {
                 is BulkSyncResult.Success -> {
-                    dbHelper.markSynced(pending.map { it.id })
+                    // Only clear the entries the server actually confirmed by hardwareId —
+                    // NOT the whole `pending` batch. A 2xx here can still mean some entries
+                    // were legitimately skipped/errored server-side; anything not in
+                    // syncedHardwareIds stays queued and gets retried next time instead of
+                    // silently vanishing from the local queue.
+                    val confirmedIds = pending
+                        .filter { it.hardwareId != null && it.hardwareId in result.syncedHardwareIds }
+                        .map { it.id }
+                    dbHelper.markSynced(confirmedIds)
                     dbHelper.pruneSynced()
-                    engineStats.recordTier4Success(System.currentTimeMillis(), result.count)
+                    engineStats.recordTier4Success(System.currentTimeMillis(), confirmedIds.size)
                     engineStats.nextBulkSyncAllowedAtMillis = System.currentTimeMillis() + COOLDOWN_MS
-                    EngineDebugLog(applicationContext).append("BULK_SYNC_SUCCESS", "${result.count} call(s) synced")
+                    val unconfirmed = pending.size - confirmedIds.size
+                    EngineDebugLog(applicationContext).append(
+                        "BULK_SYNC_SUCCESS",
+                        "${confirmedIds.size} call(s) synced" +
+                            if (unconfirmed > 0) ", $unconfirmed still queued (server skipped/errored or had no hardwareId)" else "",
+                    )
                     Result.success()
                 }
                 is BulkSyncResult.RateLimited -> {

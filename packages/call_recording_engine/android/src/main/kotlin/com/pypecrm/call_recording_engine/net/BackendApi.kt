@@ -17,7 +17,11 @@ import java.util.concurrent.TimeUnit
 data class OrgCallSettings(val autoRecordInbound: Boolean, val autoRecordOutbound: Boolean)
 
 sealed class BulkSyncResult {
-    data class Success(val count: Int) : BulkSyncResult()
+    /** [syncedHardwareIds]: exactly which of the events the caller sent are now actually
+     * represented server-side, per the response body — NOT every event in the request.
+     * A 2xx here does not mean the whole batch succeeded; the server can (and does)
+     * legitimately skip or error on individual entries while still returning 200 overall. */
+    data class Success(val count: Int, val syncedHardwareIds: Set<String>) : BulkSyncResult()
     data class RateLimited(val retryAfterSeconds: Int) : BulkSyncResult()
     data object Failed : BulkSyncResult()
 }
@@ -57,7 +61,14 @@ sealed class WhatsAppSyncResult {
 class BackendApi(private val authPrefs: NativeAuthPrefs) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        // 5 min, not 60s: /android/bulk-sync processes each call sequentially server-side
+        // (CRM entity lookup, hardwareId/callSessionId/fuzzy-window dedup queries per
+        // entry), so a large first-time backfill batch (e.g. a fresh install's whole-day
+        // catch-up) can legitimately take well over a minute. WorkManager gives this
+        // worker roughly a 10-minute execution budget regardless, so 60s was an
+        // artificial ceiling far below the platform's real limit — raising it just lets
+        // one big-but-slow request finish instead of timing out and retrying forever.
+        .readTimeout(5, TimeUnit.MINUTES)
         .writeTimeout(120, TimeUnit.SECONDS)
         .build()
 
@@ -124,7 +135,14 @@ class BackendApi(private val authPrefs: NativeAuthPrefs) {
     /** Tier 4 path: batches every unsynced [events] into ONE call — the
      * server hard rate-limits this endpoint to 1 request/user/10min
      * (Dad-backend's androidRoutes.ts bulkSyncRateLimiter), so callers
-     * (CallSyncWorker) must never call this per-event. */
+     * (CallSyncWorker) must never call this per-event.
+     *
+     * A 2xx response does NOT mean every event in [events] was actually stored — the
+     * server processes each entry independently and can legitimately skip/error on some
+     * while still returning 200 overall (see `syncCallLogs` in Dad-backend). This reads
+     * the response body's `syncedHardwareIds` to report back exactly which ones landed,
+     * so the caller only clears those from its local retry queue and anything else stays
+     * queued for the next attempt instead of being silently dropped. */
     fun bulkSync(events: List<PendingCallEvent>): BulkSyncResult {
         val (token, base) = authOrNull() ?: return BulkSyncResult.Failed
         val callsJson = JSONArray()
@@ -146,20 +164,35 @@ class BackendApi(private val authPrefs: NativeAuthPrefs) {
             .header("Authorization", "Bearer $token")
             .post(payload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
             .build()
-        client.newCall(request).execute().use { response ->
-            return when {
-                response.code == 429 -> {
-                    val body = response.body?.string().orEmpty()
-                    val retryAfter = runCatching { JSONObject(body).optInt("retryAfterSeconds", 600) }
-                        .getOrDefault(600)
-                    BulkSyncResult.RateLimited(retryAfter)
-                }
-                response.isSuccessful -> BulkSyncResult.Success(events.size)
-                else -> {
-                    Log.w(TAG, "bulkSync failed: ${response.code}")
-                    BulkSyncResult.Failed
+        return try {
+            client.newCall(request).execute().use { response ->
+                when {
+                    response.code == 429 -> {
+                        val body = response.body?.string().orEmpty()
+                        val retryAfter = runCatching { JSONObject(body).optInt("retryAfterSeconds", 600) }
+                            .getOrDefault(600)
+                        BulkSyncResult.RateLimited(retryAfter)
+                    }
+                    response.isSuccessful -> {
+                        val body = response.body?.string().orEmpty()
+                        val syncedIds = runCatching {
+                            val arr = JSONObject(body).optJSONArray("syncedHardwareIds")
+                            (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optString(it) }.toSet()
+                        }.getOrDefault(emptySet())
+                        BulkSyncResult.Success(syncedIds.size, syncedIds)
+                    }
+                    else -> {
+                        Log.w(TAG, "bulkSync failed: ${response.code}")
+                        BulkSyncResult.Failed
+                    }
                 }
             }
+        } catch (e: Exception) {
+            // Network error / timeout on a large first-time backfill batch — never let
+            // this throw uncaught out of a CoroutineWorker; WorkManager's own retry/backoff
+            // policy (see CallSyncWorker) handles trying again.
+            Log.w(TAG, "bulkSync network error", e)
+            BulkSyncResult.Failed
         }
     }
 
