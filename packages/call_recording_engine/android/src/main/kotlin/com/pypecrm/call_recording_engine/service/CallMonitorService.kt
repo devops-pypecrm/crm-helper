@@ -17,6 +17,7 @@ import com.pypecrm.call_recording_engine.data.CallStatePrefs
 import com.pypecrm.call_recording_engine.data.EngineStats
 import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
+import com.pypecrm.call_recording_engine.data.NativeRecordingCapabilityPrefs
 import com.pypecrm.call_recording_engine.data.PendingCallEvent
 import com.pypecrm.call_recording_engine.net.BackendApi
 import com.pypecrm.call_recording_engine.recorder.CallAudioRecorder
@@ -53,6 +54,7 @@ class CallMonitorService : Service() {
     private val jobScope = CoroutineScope(Dispatchers.IO + Job())
 
     private lateinit var callStatePrefs: CallStatePrefs
+    private lateinit var nativeRecordingCapabilityPrefs: NativeRecordingCapabilityPrefs
     private lateinit var engineStats: EngineStats
     private lateinit var dbHelper: CallEventDbHelper
     private lateinit var settingsCache: CallSettingsCache
@@ -69,6 +71,7 @@ class CallMonitorService : Service() {
     override fun onCreate() {
         super.onCreate()
         callStatePrefs = CallStatePrefs(this)
+        nativeRecordingCapabilityPrefs = NativeRecordingCapabilityPrefs(this)
         engineStats = EngineStats(this)
         dbHelper = CallEventDbHelper.getInstance(this)
         settingsCache = CallSettingsCache(this)
@@ -214,11 +217,30 @@ class CallMonitorService : Service() {
     }
 
     private suspend fun pollTier0(phoneNumber: String, callEndMillis: Long): File? {
-        repeat(TIER0_POLL_ATTEMPTS) { attempt ->
-            val match = NativeRecordingScanner.scanOnce(this, phoneNumber, callEndMillis)
-            if (match != null) return match
-            if (attempt < TIER0_POLL_ATTEMPTS - 1) delay(TIER0_POLL_INTERVAL_MS)
+        // Most devices never produce a Tier 0 file at all (their OEM dialer
+        // doesn't auto-record) — polling the full 9 attempts (~18s) after
+        // every single call on one of those devices is 18s of active
+        // background work for zero benefit, right in the window a rep is
+        // most likely to immediately try something else. Once this device
+        // has shown zero matches over several calls in a row, cut future
+        // polls down to a quick check instead — see
+        // NativeRecordingCapabilityPrefs's doc comment for why this stays
+        // reversible rather than a permanent one-way switch.
+        val maxAttempts = if (nativeRecordingCapabilityPrefs.isLikelyUnsupported) {
+            NativeRecordingCapabilityPrefs.SHORT_POLL_ATTEMPTS
+        } else {
+            TIER0_POLL_ATTEMPTS
         }
+
+        repeat(maxAttempts) { attempt ->
+            val match = NativeRecordingScanner.scanOnce(this, phoneNumber, callEndMillis)
+            if (match != null) {
+                nativeRecordingCapabilityPrefs.recordCallOutcome(matchFound = true)
+                return match
+            }
+            if (attempt < maxAttempts - 1) delay(TIER0_POLL_INTERVAL_MS)
+        }
+        nativeRecordingCapabilityPrefs.recordCallOutcome(matchFound = false)
         return null
     }
 
