@@ -147,6 +147,15 @@ class CallRecordingEngine {
   /// refresh) to see updated counts, not this call's return value.
   Future<void> syncCallLogsNow() => _channel.invokeMethod('syncCallLogsNow');
 
+  /// Rewinds the native reconcile watermark to local midnight, then runs
+  /// the same reconcile-then-upload pass [syncCallLogsNow] does — so this
+  /// re-reads EVERY call from today (already-synced or not) instead of
+  /// only new ones, and re-sends them. The backend heals (corrects) an
+  /// already-known call rather than duplicating it. Slower than a plain
+  /// sync and meant to be an explicit, occasional user action ("Re-check
+  /// Today's Calls"), not something run on every regular sync.
+  Future<void> reverifyToday() => _channel.invokeMethod('reverifyToday');
+
   /// Convenience constant for reading the READ_CALL_LOG entry out of
   /// [checkPermissions]'s result map.
   static const readCallLogPermission = 'android.permission.READ_CALL_LOG';

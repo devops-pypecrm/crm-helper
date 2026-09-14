@@ -33,6 +33,21 @@ class CallLogReconcilePrefs(context: Context) {
         return cal.timeInMillis
     }
 
+    /**
+     * User-triggered "Re-check Today's Calls" — rewinds the watermark back
+     * to local midnight so the next [com.pypecrm.call_recording_engine.sync.CallLogReconciler.reconcile]
+     * pass re-reads every CallLog row from today, not just ones since the
+     * last sync. Safe to call anytime: the backend heals (overwrites, not
+     * duplicates) an already-known call it sees again, matched by the
+     * CallLog row's own stable `_ID` as `hardwareId` — see
+     * `CallLogReconciler`'s class doc comment. The watermark advances
+     * forward again normally after this one-off run, same as any other
+     * reconcile pass.
+     */
+    fun resetToStartOfToday() {
+        lastReconciledAtMillis = startOfTodayMillis()
+    }
+
     companion object {
         private const val PREFS_NAME = "call_recording_engine_reconcile"
         private const val KEY_LAST_RECONCILED = "last_reconciled_at_millis"

@@ -11,6 +11,7 @@ import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.pypecrm.call_recording_engine.accessibility.CallRecordingAccessibilityService
+import com.pypecrm.call_recording_engine.data.CallLogReconcilePrefs
 import com.pypecrm.call_recording_engine.data.EngineStats
 import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
@@ -140,6 +141,18 @@ class CallRecordingEnginePlugin :
                 // is invisible: it reuses the READ_CALL_LOG grant from onboarding
                 // rather than asking for anything new, so there was previously no
                 // UI moment that showed the feature exists or is working.
+                CallSyncWorker.scheduleNow(appContext)
+                result.success(null)
+            }
+            "reverifyToday" -> {
+                // Unlike "syncCallLogsNow" above, this first rewinds the
+                // reconcile watermark back to local midnight (see
+                // CallLogReconcilePrefs.resetToStartOfToday's doc comment)
+                // so the reconcile pass this triggers re-reads EVERY
+                // CallLog row from today, not just ones since the last
+                // sync — the backend heals (corrects in place) any call
+                // it already knew about rather than duplicating it.
+                CallLogReconcilePrefs(appContext).resetToStartOfToday()
                 CallSyncWorker.scheduleNow(appContext)
                 result.success(null)
             }

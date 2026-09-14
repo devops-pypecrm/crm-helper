@@ -114,6 +114,7 @@ class _StatusCard extends ConsumerStatefulWidget {
 class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProviderStateMixin {
   late final AnimationController _syncIconController;
   bool _isSyncing = false;
+  bool _isReverifying = false;
 
   @override
   void initState() {
@@ -162,6 +163,27 @@ class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProvi
     } finally {
       _syncIconController.stop();
       if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
+  /// Rewinds today's sync watermark and re-checks every call from today
+  /// against the phone's own Call Log — not just new ones. Slower than a
+  /// plain sync (it re-reads the whole day), so it's a separate, explicit
+  /// action rather than folded into "Sync call logs now" — see
+  /// `EngineStatusController.reverifyToday`'s doc comment.
+  Future<void> _handleReverifyToday() async {
+    setState(() => _isReverifying = true);
+    try {
+      await ref.read(engineStatusControllerProvider.notifier).reverifyToday();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Today's calls re-checked against your Call Log."),
+          backgroundColor: kBrandColor,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isReverifying = false);
     }
   }
 
@@ -252,6 +274,21 @@ class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProvi
                 ),
                 label: Text(_isSyncing ? 'Syncing…' : 'Sync call logs now'),
                 onPressed: (!callLogGranted || _isSyncing) ? null : _handleSyncNow,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                icon: _isReverifying
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.history, size: 18),
+                label: Text(_isReverifying ? 'Re-checking…' : "Re-check today's calls"),
+                onPressed: (!callLogGranted || _isReverifying) ? null : _handleReverifyToday,
               ),
             ),
             if (!status.monitoringEnabled) ...[

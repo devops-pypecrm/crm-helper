@@ -53,6 +53,21 @@ import com.pypecrm.call_recording_engine.scanner.NativeRecordingScanner
 object CallLogReconciler {
     private const val TAG = "CallLogReconciler"
 
+    // A CallLog row this fresh might still be mid-write on some OEMs (the
+    // same concern CallLogLookup's real-time retry loop guards against,
+    // "a few seconds" per its own doc comment) — reading it now risks
+    // capturing a `DURATION` of 0 that the OS hasn't finished updating
+    // yet. Rows this recent are skipped for THIS pass only (not counted,
+    // watermark not advanced past them), so the next reconcile run
+    // (periodic tick or manual sync) picks them up once they've settled,
+    // rather than this reconciler ever trusting a possibly-incomplete
+    // write. Deliberately short and NOT a "duration must be > 0" gate
+    // like CallLogLookup's `isFinalized` — a genuinely, permanently
+    // zero-duration call (e.g. an unanswered outbound dial) is real data
+    // once it's had a few seconds to settle, not something to keep
+    // waiting on forever.
+    private const val RACE_WINDOW_MS = 15_000L
+
     /** Returns how many previously-unseen calls were recovered (audio or
      * metadata-only combined). */
     fun reconcile(context: Context, authPrefs: NativeAuthPrefs): Int {
@@ -73,6 +88,7 @@ object CallLogReconciler {
         var queued = 0
         var tier0Recovered = 0
         var newestSeen = since
+        val now = System.currentTimeMillis()
 
         try {
             context.contentResolver.query(
@@ -98,6 +114,12 @@ object CallLogReconciler {
 
                 while (cursor.moveToNext()) {
                     val date = cursor.getLong(dateCol)
+                    if (date > now - RACE_WINDOW_MS) {
+                        // Too fresh to trust yet — see RACE_WINDOW_MS's doc
+                        // comment. Left behind the watermark on purpose;
+                        // the next reconcile pass re-reads it.
+                        continue
+                    }
                     val rowId = cursor.getLong(idCol)
                     val typeInt = cursor.getInt(typeCol)
                     val typeStr = typeToString(typeInt)

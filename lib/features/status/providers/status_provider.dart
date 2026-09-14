@@ -65,6 +65,33 @@ class EngineStatusController extends _$EngineStatusController {
 
     return (before: before, after: after);
   }
+
+  /// "Re-check Today's Calls" — see `CallRecordingEngine.reverifyToday`'s
+  /// doc comment. Same before/after polling shape as [syncCallLogsNow],
+  /// just watching this once instead of on every regular sync: rewinding
+  /// the watermark means today's whole call history gets re-read and
+  /// re-sent (the backend heals already-known calls rather than
+  /// duplicating them), which can process more calls than a normal
+  /// incremental sync — a couple extra poll attempts give it more time to
+  /// visibly land before this gives up watching.
+  Future<({EngineStatus before, EngineStatus after})> reverifyToday() async {
+    final engine = ref.read(callRecordingEngineProvider);
+    final before = state.valueOrNull ?? await engine.getStatus();
+
+    await engine.reverifyToday();
+
+    var after = before;
+    for (var attempt = 0; attempt < 8; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      after = await engine.getStatus();
+      state = AsyncValue.data(after);
+      final changed = after.lastSyncedAt != before.lastSyncedAt ||
+          after.totalSyncedCalls != before.totalSyncedCalls;
+      if (changed) break;
+    }
+
+    return (before: before, after: after);
+  }
 }
 
 /// One-shot read of the Phase 1 runtime-permission grants, used to show a
