@@ -12,12 +12,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.pypecrm.call_recording_engine.data.CallEventDbHelper
-import com.pypecrm.call_recording_engine.data.EngineStats
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
-import com.pypecrm.call_recording_engine.debug.EngineDebugLog
-import com.pypecrm.call_recording_engine.net.BackendApi
-import com.pypecrm.call_recording_engine.net.BulkSyncResult
 import java.util.concurrent.TimeUnit
 
 /**
@@ -35,67 +30,12 @@ class CallSyncWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val authPrefs = NativeAuthPrefs(applicationContext)
         if (!authPrefs.isSignedIn()) return Result.success() // nothing to do, not logged in
 
-        // Local-only (no network, no rate limit) — runs on every periodic
-        // tick regardless of the bulk-sync throttle below, so a call the
-        // real-time path missed gets discovered promptly even while an
-        // upload is still cooling down. See CallLogReconciler's doc
-        // comment for why this can't just be part of the real-time path.
-        CallLogReconciler.reconcile(applicationContext, authPrefs)
-
-        val engineStats = EngineStats(applicationContext)
-        val now = System.currentTimeMillis()
-        if (now < engineStats.nextBulkSyncAllowedAtMillis) {
-            Log.d(TAG, "Self-throttled — next bulk-sync allowed at ${engineStats.nextBulkSyncAllowedAtMillis}")
-            return Result.success()
-        }
-
-        val dbHelper = CallEventDbHelper.getInstance(applicationContext)
-        val pending = dbHelper.unsyncedEvents()
-        val workResult = if (pending.isEmpty()) {
-            Result.success()
-        } else {
-            val api = BackendApi(authPrefs)
-            when (val result = api.bulkSync(pending)) {
-                is BulkSyncResult.Success -> {
-                    // Only clear the entries the server actually confirmed by hardwareId —
-                    // NOT the whole `pending` batch. A 2xx here can still mean some entries
-                    // were legitimately skipped/errored server-side; anything not in
-                    // syncedHardwareIds stays queued and gets retried next time instead of
-                    // silently vanishing from the local queue.
-                    val confirmedIds = pending
-                        .filter { it.hardwareId != null && it.hardwareId in result.syncedHardwareIds }
-                        .map { it.id }
-                    dbHelper.markSynced(confirmedIds)
-                    dbHelper.pruneSynced()
-                    engineStats.recordTier4Success(System.currentTimeMillis(), confirmedIds.size)
-                    engineStats.nextBulkSyncAllowedAtMillis = System.currentTimeMillis() + COOLDOWN_MS
-                    val unconfirmed = pending.size - confirmedIds.size
-                    EngineDebugLog(applicationContext).append(
-                        "BULK_SYNC_SUCCESS",
-                        "${confirmedIds.size} call(s) synced" +
-                            if (unconfirmed > 0) ", $unconfirmed still queued (server skipped/errored or had no hardwareId)" else "",
-                    )
-                    Result.success()
-                }
-                is BulkSyncResult.RateLimited -> {
-                    engineStats.nextBulkSyncAllowedAtMillis =
-                        System.currentTimeMillis() + result.retryAfterSeconds * 1000L
-                    EngineDebugLog(applicationContext).append(
-                        "BULK_SYNC_RATE_LIMITED",
-                        "retry in ${result.retryAfterSeconds}s",
-                        level = "warn",
-                    )
-                    Result.retry()
-                }
-                BulkSyncResult.Failed -> {
-                    EngineDebugLog(applicationContext).append(
-                        "BULK_SYNC_FAILED",
-                        "${pending.size} call(s) still pending",
-                        level = "error",
-                    )
-                    Result.retry()
-                }
-            }
+        // bypassCooldown=false — the periodic/automatic path is exactly
+        // what the self-throttle exists to protect; see CallSyncRunner's
+        // doc comment for why a manual re-check bypasses it instead.
+        val outcome = CallSyncRunner.run(applicationContext, authPrefs, bypassCooldown = false)
+        if (outcome is SyncOutcome.Success) {
+            Log.d(TAG, "Sync pass done — reconciled=${outcome.reconciledCount} synced=${outcome.syncedCount}")
         }
 
         // Runs after bulk-sync so a just-logged BULK_SYNC_* event goes out
@@ -103,14 +43,16 @@ class CallSyncWorker(context: Context, params: WorkerParameters) : CoroutineWork
         // effort, never affects this worker's own success/retry outcome.
         HelperLogUploader.upload(applicationContext, authPrefs)
 
-        return workResult
+        return when (outcome) {
+            is SyncOutcome.RateLimited, is SyncOutcome.Failed -> Result.retry()
+            else -> Result.success()
+        }
     }
 
     companion object {
         private const val TAG = "CallSyncWorker"
         private const val WORK_NAME = "call_recording_engine_sync"
         private const val PERIODIC_WORK_NAME = "call_recording_engine_sync_periodic"
-        private const val COOLDOWN_MS = 10 * 60 * 1000L
 
         private fun networkConstraints() =
             Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()

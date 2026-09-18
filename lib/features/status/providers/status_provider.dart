@@ -38,59 +38,22 @@ class EngineStatusController extends _$EngineStatusController {
   }
 
   /// Manual "sync now" for the periodic call-log reconciliation — see
-  /// CallRecordingEngine.syncCallLogsNow's doc comment. The native side
-  /// just enqueues WorkManager work and returns immediately (no
-  /// completion callback exists), so this polls [getStatus] every couple
-  /// seconds and stops as soon as something visibly changed (or after a
-  /// bounded number of attempts) — long enough to cover the reconciler now
-  /// also attempting a Tier 0 MediaStore lookup + upload per backfilled
-  /// call, which can take a few seconds longer than a metadata-only sync.
-  /// Returns the before/after snapshot so the caller can report exactly
-  /// what changed, rather than just "sync started".
-  Future<({EngineStatus before, EngineStatus after})> syncCallLogsNow() async {
-    final engine = ref.read(callRecordingEngineProvider);
-    final before = state.valueOrNull ?? await engine.getStatus();
-
-    await engine.syncCallLogsNow();
-
-    var after = before;
-    for (var attempt = 0; attempt < 6; attempt++) {
-      await Future<void>.delayed(const Duration(seconds: 2));
-      after = await engine.getStatus();
-      state = AsyncValue.data(after);
-      final changed = after.lastSyncedAt != before.lastSyncedAt ||
-          after.totalSyncedCalls != before.totalSyncedCalls;
-      if (changed) break;
-    }
-
-    return (before: before, after: after);
+  /// CallRecordingEngine.syncCallLogsNow's doc comment. That call now runs
+  /// inline and doesn't resolve until the native side has actually
+  /// finished, so the returned [ManualSyncResult] already reflects the
+  /// real outcome — no more guessing from a before/after status poll.
+  Future<ManualSyncResult> syncCallLogsNow() async {
+    final result = await ref.read(callRecordingEngineProvider).syncCallLogsNow();
+    await refresh();
+    return result;
   }
 
   /// "Re-check Today's Calls" — see `CallRecordingEngine.reverifyToday`'s
-  /// doc comment. Same before/after polling shape as [syncCallLogsNow],
-  /// just watching this once instead of on every regular sync: rewinding
-  /// the watermark means today's whole call history gets re-read and
-  /// re-sent (the backend heals already-known calls rather than
-  /// duplicating them), which can process more calls than a normal
-  /// incremental sync — a couple extra poll attempts give it more time to
-  /// visibly land before this gives up watching.
-  Future<({EngineStatus before, EngineStatus after})> reverifyToday() async {
-    final engine = ref.read(callRecordingEngineProvider);
-    final before = state.valueOrNull ?? await engine.getStatus();
-
-    await engine.reverifyToday();
-
-    var after = before;
-    for (var attempt = 0; attempt < 8; attempt++) {
-      await Future<void>.delayed(const Duration(seconds: 2));
-      after = await engine.getStatus();
-      state = AsyncValue.data(after);
-      final changed = after.lastSyncedAt != before.lastSyncedAt ||
-          after.totalSyncedCalls != before.totalSyncedCalls;
-      if (changed) break;
-    }
-
-    return (before: before, after: after);
+  /// doc comment. Same shape as [syncCallLogsNow].
+  Future<ManualSyncResult> reverifyToday() async {
+    final result = await ref.read(callRecordingEngineProvider).reverifyToday();
+    await refresh();
+    return result;
   }
 }
 

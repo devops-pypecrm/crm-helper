@@ -142,10 +142,14 @@ class CallRecordingEngine {
   /// Manually triggers the same reconcile-then-upload pass CallSyncWorker
   /// already runs on its own (see CallLogReconciler) — this scans the
   /// system CallLog for anything since the last watermark and queues it,
-  /// then flushes the upload queue. Enqueues WorkManager work and returns
-  /// immediately; re-check [getStatus] a few seconds later (or pull to
-  /// refresh) to see updated counts, not this call's return value.
-  Future<void> syncCallLogsNow() => _channel.invokeMethod('syncCallLogsNow');
+  /// then flushes the upload queue. Runs inline (bypassing the client-side
+  /// bulk-sync cooldown) and doesn't resolve until the pass has actually
+  /// finished — the returned [ManualSyncResult] reflects what really
+  /// happened, not just that the work was scheduled.
+  Future<ManualSyncResult> syncCallLogsNow() async {
+    final raw = await _channel.invokeMapMethod<String, Object?>('syncCallLogsNow');
+    return ManualSyncResult.fromMap(raw ?? const {});
+  }
 
   /// Rewinds the native reconcile watermark to local midnight, then runs
   /// the same reconcile-then-upload pass [syncCallLogsNow] does — so this
@@ -153,8 +157,12 @@ class CallRecordingEngine {
   /// only new ones, and re-sends them. The backend heals (corrects) an
   /// already-known call rather than duplicating it. Slower than a plain
   /// sync and meant to be an explicit, occasional user action ("Re-check
-  /// Today's Calls"), not something run on every regular sync.
-  Future<void> reverifyToday() => _channel.invokeMethod('reverifyToday');
+  /// Today's Calls"), not something run on every regular sync. Same
+  /// inline/awaited behavior as [syncCallLogsNow] — see its doc comment.
+  Future<ManualSyncResult> reverifyToday() async {
+    final raw = await _channel.invokeMapMethod<String, Object?>('reverifyToday');
+    return ManualSyncResult.fromMap(raw ?? const {});
+  }
 
   /// Convenience constant for reading the READ_CALL_LOG entry out of
   /// [checkPermissions]'s result map.
@@ -205,4 +213,43 @@ class EngineStatus {
 
   int get totalSyncedCalls =>
       tier0SuccessCount + tier1SuccessCount + tier2SuccessCount + tier3SuccessCount + tier4SuccessCount;
+}
+
+enum ManualSyncStatus { success, rateLimited, failed, permissionMissing, notSignedIn }
+
+/// Real outcome of [CallRecordingEngine.syncCallLogsNow] /
+/// [CallRecordingEngine.reverifyToday] — both now run inline and don't
+/// resolve until the native side has actually finished, so this reflects
+/// what happened rather than just that the work was scheduled.
+class ManualSyncResult {
+  const ManualSyncResult({
+    required this.status,
+    this.reconciledCount = 0,
+    this.syncedCount = 0,
+    this.pendingCount = 0,
+    this.retryAfterSeconds,
+  });
+
+  factory ManualSyncResult.fromMap(Map<String, Object?> map) {
+    final status = switch (map['status'] as String?) {
+      'success' => ManualSyncStatus.success,
+      'rateLimited' => ManualSyncStatus.rateLimited,
+      'permissionMissing' => ManualSyncStatus.permissionMissing,
+      'notSignedIn' => ManualSyncStatus.notSignedIn,
+      _ => ManualSyncStatus.failed,
+    };
+    return ManualSyncResult(
+      status: status,
+      reconciledCount: (map['reconciledCount'] as num?)?.toInt() ?? 0,
+      syncedCount: (map['syncedCount'] as num?)?.toInt() ?? 0,
+      pendingCount: (map['pendingCount'] as num?)?.toInt() ?? 0,
+      retryAfterSeconds: (map['retryAfterSeconds'] as num?)?.toInt(),
+    );
+  }
+
+  final ManualSyncStatus status;
+  final int reconciledCount;
+  final int syncedCount;
+  final int pendingCount;
+  final int? retryAfterSeconds;
 }

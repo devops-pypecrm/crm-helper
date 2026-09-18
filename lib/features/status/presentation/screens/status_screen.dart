@@ -134,32 +134,7 @@ class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProvi
     try {
       final result = await ref.read(engineStatusControllerProvider.notifier).syncCallLogsNow();
       if (!mounted) return;
-
-      final audioBefore = result.before.tier0SuccessCount +
-          result.before.tier1SuccessCount +
-          result.before.tier2SuccessCount +
-          result.before.tier3SuccessCount;
-      final audioAfter = result.after.tier0SuccessCount +
-          result.after.tier1SuccessCount +
-          result.after.tier2SuccessCount +
-          result.after.tier3SuccessCount;
-      final newRecordings = audioAfter - audioBefore;
-      final newCallLogs = result.after.tier4SuccessCount - result.before.tier4SuccessCount;
-
-      final String message;
-      if (newRecordings <= 0 && newCallLogs <= 0) {
-        message = 'Sync complete — no new calls found since last sync.';
-      } else {
-        final parts = <String>[
-          if (newRecordings > 0) '$newRecordings recording${newRecordings == 1 ? '' : 's'} recovered',
-          if (newCallLogs > 0) '$newCallLogs call log${newCallLogs == 1 ? '' : 's'} synced',
-        ];
-        message = 'Sync complete — ${parts.join(', ')}.';
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: kBrandColor),
-      );
+      _showSyncResultSnackBar(result);
     } finally {
       _syncIconController.stop();
       if (mounted) setState(() => _isSyncing = false);
@@ -174,17 +149,52 @@ class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProvi
   Future<void> _handleReverifyToday() async {
     setState(() => _isReverifying = true);
     try {
-      await ref.read(engineStatusControllerProvider.notifier).reverifyToday();
+      final result = await ref.read(engineStatusControllerProvider.notifier).reverifyToday();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Today's calls re-checked against your Call Log."),
-          backgroundColor: kBrandColor,
-        ),
-      );
+      _showSyncResultSnackBar(result);
     } finally {
       if (mounted) setState(() => _isReverifying = false);
     }
+  }
+
+  /// Both manual-sync buttons now await the real native outcome (see
+  /// `ManualSyncResult`'s doc comment) instead of assuming success the
+  /// moment the work was scheduled, so this reports what actually
+  /// happened — including the cases that used to fail silently behind an
+  /// always-green "synced" toast (missing permission, server rate limit,
+  /// upload failure).
+  void _showSyncResultSnackBar(ManualSyncResult result) {
+    final String message;
+    Color color = kBrandColor;
+    switch (result.status) {
+      case ManualSyncStatus.success:
+        if (result.syncedCount <= 0 && result.reconciledCount <= 0) {
+          message = 'All caught up — no new calls found.';
+        } else {
+          final parts = <String>[
+            if (result.reconciledCount > 0)
+              '${result.reconciledCount} call${result.reconciledCount == 1 ? '' : 's'} found',
+            if (result.syncedCount > 0) '${result.syncedCount} synced',
+            if (result.pendingCount > 0) '${result.pendingCount} still pending',
+          ];
+          message = 'Done — ${parts.join(', ')}.';
+        }
+      case ManualSyncStatus.rateLimited:
+        message = 'Server is busy — will retry automatically in a few minutes.';
+        color = Colors.orange;
+      case ManualSyncStatus.failed:
+        message = 'Sync failed — ${result.pendingCount} call(s) still pending. Will retry automatically.';
+        color = Colors.red;
+      case ManualSyncStatus.permissionMissing:
+        message = 'Call Log permission is missing — grant it in Required Permissions to sync calls.';
+        color = Colors.red;
+      case ManualSyncStatus.notSignedIn:
+        message = 'Not signed in — sign in to the app first.';
+        color = Colors.red;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color),
+    );
   }
 
   @override

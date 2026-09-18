@@ -17,7 +17,9 @@ import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
 import com.pypecrm.call_recording_engine.debug.EngineDebugLog
 import com.pypecrm.call_recording_engine.service.CallMonitorService
+import com.pypecrm.call_recording_engine.sync.CallSyncRunner
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
+import com.pypecrm.call_recording_engine.sync.SyncOutcome
 import com.pypecrm.call_recording_engine.sync.WhatsAppSyncWorker
 import com.pypecrm.call_recording_engine.util.AccessibilityUtils
 import com.pypecrm.call_recording_engine.util.AutoStartHelper
@@ -31,6 +33,11 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry.ActivityResultListener
 import io.flutter.plugin.common.PluginRegistry.RequestPermissionsResultListener
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Dart<->native bridge for every tier. All the actual call-monitoring logic
@@ -60,6 +67,12 @@ class CallRecordingEnginePlugin :
     private var activity: Activity? = null
     private var pendingPermissionResult: Result? = null
     private var pendingProjectionResult: Result? = null
+
+    // Backs the manual-sync method calls below — launched work outlives a
+    // single onMethodCall invocation but must still be cancelled if the
+    // engine detaches mid-flight (e.g. the screen showing progress is torn
+    // down) rather than leaking or calling back into a dead channel.
+    private val pluginScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -141,8 +154,16 @@ class CallRecordingEnginePlugin :
                 // is invisible: it reuses the READ_CALL_LOG grant from onboarding
                 // rather than asking for anything new, so there was previously no
                 // UI moment that showed the feature exists or is working.
-                CallSyncWorker.scheduleNow(appContext)
-                result.success(null)
+                //
+                // Runs inline and reports the real [SyncOutcome] back to Dart
+                // instead of just handing WorkManager a job and returning
+                // immediately — the old fire-and-forget version showed
+                // "synced" the instant the job was *scheduled*, regardless of
+                // whether it had actually run yet (WorkManager can defer a
+                // job for minutes on OEMs with aggressive background
+                // restrictions), which is exactly what made the button look
+                // broken on some devices while working fine on others.
+                runManualSync(result, resetWatermark = false)
             }
             "reverifyToday" -> {
                 // Unlike "syncCallLogsNow" above, this first rewinds the
@@ -152,9 +173,7 @@ class CallRecordingEnginePlugin :
                 // CallLog row from today, not just ones since the last
                 // sync — the backend heals (corrects in place) any call
                 // it already knew about rather than duplicating it.
-                CallLogReconcilePrefs(appContext).resetToStartOfToday()
-                CallSyncWorker.scheduleNow(appContext)
-                result.success(null)
+                runManualSync(result, resetWatermark = true)
             }
             "getEngineDebugLog" -> result.success(EngineDebugLog(appContext).readAll())
             "clearEngineDebugLog" -> {
@@ -288,6 +307,44 @@ class CallRecordingEnginePlugin :
         currentActivity.startActivityForResult(manager.createScreenCaptureIntent(), PROJECTION_REQUEST_CODE)
     }
 
+    /** Runs the reconcile-then-upload pass inline and resolves [result]
+     * with what actually happened — the caller (Dart side) awaits this, so
+     * its "in progress" state is just the natural pending-Future span, no
+     * separate polling needed. [resetWatermark] distinguishes the two
+     * Dart-facing entry points; see their call sites' doc comments. */
+    private fun runManualSync(result: Result, resetWatermark: Boolean) {
+        if (resetWatermark) {
+            CallLogReconcilePrefs(appContext).resetToStartOfToday()
+        }
+        val authPrefs = NativeAuthPrefs(appContext)
+        pluginScope.launch {
+            val outcome = CallSyncRunner.run(appContext, authPrefs, bypassCooldown = true)
+            result.success(outcomeToMap(outcome))
+        }
+    }
+
+    private fun outcomeToMap(outcome: SyncOutcome): Map<String, Any?> = when (outcome) {
+        is SyncOutcome.Success -> mapOf(
+            "status" to "success",
+            "reconciledCount" to outcome.reconciledCount,
+            "syncedCount" to outcome.syncedCount,
+            "pendingCount" to outcome.pendingCount,
+        )
+        is SyncOutcome.RateLimited -> mapOf(
+            "status" to "rateLimited",
+            "reconciledCount" to outcome.reconciledCount,
+            "pendingCount" to outcome.pendingCount,
+            "retryAfterSeconds" to outcome.retryAfterSeconds,
+        )
+        is SyncOutcome.Failed -> mapOf(
+            "status" to "failed",
+            "reconciledCount" to outcome.reconciledCount,
+            "pendingCount" to outcome.pendingCount,
+        )
+        SyncOutcome.PermissionMissing -> mapOf("status" to "permissionMissing")
+        SyncOutcome.NotSignedIn -> mapOf("status" to "notSignedIn")
+    }
+
     /** Fire-and-forget — the automation runs for several seconds across
      * multiple screen transitions, so its result is read back from
      * [EngineDebugLog] (via getEngineDebugLog), not this call's return
@@ -341,6 +398,7 @@ class CallRecordingEnginePlugin :
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        pluginScope.cancel()
     }
 
     companion object {
