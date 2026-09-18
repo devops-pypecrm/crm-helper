@@ -228,6 +228,7 @@ class ManualSyncResult {
     this.syncedCount = 0,
     this.pendingCount = 0,
     this.retryAfterSeconds,
+    this.httpCode,
   });
 
   factory ManualSyncResult.fromMap(Map<String, Object?> map) {
@@ -244,6 +245,7 @@ class ManualSyncResult {
       syncedCount: (map['syncedCount'] as num?)?.toInt() ?? 0,
       pendingCount: (map['pendingCount'] as num?)?.toInt() ?? 0,
       retryAfterSeconds: (map['retryAfterSeconds'] as num?)?.toInt(),
+      httpCode: (map['httpCode'] as num?)?.toInt(),
     );
   }
 
@@ -252,4 +254,11 @@ class ManualSyncResult {
   final int syncedCount;
   final int pendingCount;
   final int? retryAfterSeconds;
+
+  /// Only set when [status] is [ManualSyncStatus.failed] and the failure was
+  /// an HTTP response (null means a network-level failure — timeout, no
+  /// connection). 401/403 means the stored session is dead and nothing will
+  /// change until the user re-authenticates; anything else is more likely
+  /// transient (server error) and will probably heal on its own retry.
+  final int? httpCode;
 }

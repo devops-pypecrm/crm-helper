@@ -23,7 +23,12 @@ sealed class BulkSyncResult {
      * legitimately skip or error on individual entries while still returning 200 overall. */
     data class Success(val count: Int, val syncedHardwareIds: Set<String>) : BulkSyncResult()
     data class RateLimited(val retryAfterSeconds: Int) : BulkSyncResult()
-    data object Failed : BulkSyncResult()
+    /** [httpCode] is null for a network-level failure (timeout, no
+     * connection, etc.) rather than an HTTP response — carried through so a
+     * caller can distinguish "the token is dead" (401/403 — nothing will
+     * change until the user re-authenticates) from "transient, will heal
+     * itself" (5xx/timeout), instead of a single opaque failure. */
+    data class Failed(val httpCode: Int?, val message: String?) : BulkSyncResult()
 }
 
 sealed class HelperLogUploadResult {
@@ -144,7 +149,7 @@ class BackendApi(private val authPrefs: NativeAuthPrefs) {
      * so the caller only clears those from its local retry queue and anything else stays
      * queued for the next attempt instead of being silently dropped. */
     fun bulkSync(events: List<PendingCallEvent>): BulkSyncResult {
-        val (token, base) = authOrNull() ?: return BulkSyncResult.Failed
+        val (token, base) = authOrNull() ?: return BulkSyncResult.Failed(null, "no stored auth")
         val callsJson = JSONArray()
         for (event in events) {
             callsJson.put(
@@ -182,8 +187,9 @@ class BackendApi(private val authPrefs: NativeAuthPrefs) {
                         BulkSyncResult.Success(syncedIds.size, syncedIds)
                     }
                     else -> {
-                        Log.w(TAG, "bulkSync failed: ${response.code}")
-                        BulkSyncResult.Failed
+                        val body = response.body?.string().orEmpty().take(500)
+                        Log.w(TAG, "bulkSync failed: ${response.code} $body")
+                        BulkSyncResult.Failed(response.code, body.ifBlank { null })
                     }
                 }
             }
@@ -192,7 +198,7 @@ class BackendApi(private val authPrefs: NativeAuthPrefs) {
             // this throw uncaught out of a CoroutineWorker; WorkManager's own retry/backoff
             // policy (see CallSyncWorker) handles trying again.
             Log.w(TAG, "bulkSync network error", e)
-            BulkSyncResult.Failed
+            BulkSyncResult.Failed(null, e.message)
         }
     }
 

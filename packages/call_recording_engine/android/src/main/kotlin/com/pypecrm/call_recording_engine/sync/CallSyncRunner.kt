@@ -17,7 +17,7 @@ import com.pypecrm.call_recording_engine.net.BulkSyncResult
 sealed class SyncOutcome {
     data class Success(val reconciledCount: Int, val syncedCount: Int, val pendingCount: Int) : SyncOutcome()
     data class RateLimited(val reconciledCount: Int, val pendingCount: Int, val retryAfterSeconds: Int) : SyncOutcome()
-    data class Failed(val reconciledCount: Int, val pendingCount: Int) : SyncOutcome()
+    data class Failed(val reconciledCount: Int, val pendingCount: Int, val httpCode: Int?) : SyncOutcome()
     object PermissionMissing : SyncOutcome()
     object NotSignedIn : SyncOutcome()
 }
@@ -91,13 +91,13 @@ object CallSyncRunner {
                 )
                 SyncOutcome.RateLimited(reconciledCount, pending.size, result.retryAfterSeconds)
             }
-            BulkSyncResult.Failed -> {
+            is BulkSyncResult.Failed -> {
                 EngineDebugLog(context).append(
                     "BULK_SYNC_FAILED",
-                    "${pending.size} call(s) still pending",
+                    "${pending.size} call(s) still pending — httpCode=${result.httpCode} ${result.message.orEmpty()}".trim(),
                     level = "error",
                 )
-                SyncOutcome.Failed(reconciledCount, pending.size)
+                SyncOutcome.Failed(reconciledCount, pending.size, result.httpCode)
             }
         }
     }

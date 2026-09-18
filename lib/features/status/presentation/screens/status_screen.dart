@@ -183,7 +183,9 @@ class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProvi
         message = 'Server is busy — will retry automatically in a few minutes.';
         color = Colors.orange;
       case ManualSyncStatus.failed:
-        message = 'Sync failed — ${result.pendingCount} call(s) still pending. Will retry automatically.';
+        message = result.httpCode == 401 || result.httpCode == 403
+            ? 'Session expired — please sign out and sign in again to resume syncing.'
+            : 'Sync failed (${result.httpCode ?? 'network error'}) — ${result.pendingCount} call(s) still pending. Will retry automatically.';
         color = Colors.red;
       case ManualSyncStatus.permissionMissing:
         message = 'Call Log permission is missing — grant it in Required Permissions to sync calls.';
