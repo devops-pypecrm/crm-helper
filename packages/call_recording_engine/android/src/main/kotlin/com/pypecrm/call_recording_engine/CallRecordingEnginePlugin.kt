@@ -38,6 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Dart<->native bridge for every tier. All the actual call-monitoring logic
@@ -318,7 +319,18 @@ class CallRecordingEnginePlugin :
         }
         val authPrefs = NativeAuthPrefs(appContext)
         pluginScope.launch {
-            val outcome = CallSyncRunner.run(appContext, authPrefs, bypassCooldown = true)
+            // pluginScope runs on Dispatchers.Main (needed to call back into
+            // result.success safely) — CallSyncRunner.run does blocking DB
+            // and network I/O (OkHttp's synchronous execute()), which
+            // Android hard-blocks on the main thread with a
+            // NetworkOnMainThreadException. That exception was landing in
+            // BackendApi.bulkSync's generic catch block and getting reported
+            // as an opaque "network error" on every single manual sync,
+            // regardless of actual connectivity — not a connectivity bug at
+            // all. Must run on a background dispatcher.
+            val outcome = withContext(Dispatchers.IO) {
+                CallSyncRunner.run(appContext, authPrefs, bypassCooldown = true)
+            }
             result.success(outcomeToMap(outcome))
         }
     }
