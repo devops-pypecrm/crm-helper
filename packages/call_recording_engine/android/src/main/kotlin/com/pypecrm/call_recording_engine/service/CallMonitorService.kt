@@ -24,6 +24,7 @@ import com.pypecrm.call_recording_engine.recorder.CallAudioRecorder
 import com.pypecrm.call_recording_engine.scanner.NativeRecordingScanner
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
 import com.pypecrm.call_recording_engine.util.CallLogLookup
+import com.pypecrm.call_recording_engine.util.DeviceCapabilities
 import com.pypecrm.call_recording_engine.util.PhoneNumberUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -123,6 +124,49 @@ class CallMonitorService : Service() {
         if (!settingsCache.isDirectionAllowed(callStatePrefs.likelyOutgoing)) {
             Log.d(TAG, "Live recording skipped — org has recording off for this direction.")
             return
+        }
+        if (DeviceCapabilities.isLowRam(this)) {
+            // Tiers 1/2/3 all force MODE_IN_COMMUNICATION/speakerphone and
+            // hold an in-call audio source (MediaRecorder or
+            // MediaProjection) for the whole call — real contention for the
+            // same audio HAL path the telephony stack itself needs, for the
+            // full call duration. Reported to make calls fail/lag to the
+            // point of being unusable on 2GB-class devices (realme C11
+            // 2021 Go Edition and similar). Skipping straight to Tier 0
+            // (native OEM recorder file, polled at call-end — no live audio
+            // interference at all) plus Tier 4 (metadata-only) keeps call
+            // fetching/sync fully intact; it only gives up our own live
+            // capture on hardware too weak to safely run it alongside an
+            // active call.
+            Log.d(TAG, "Low-RAM device — skipping live capture (Tiers 1/2/3), relying on Tier 0/4 only.")
+            return
+        }
+        if (nativeRecordingCapabilityPrefs.preferNativeOnly) {
+            // This device has proven its OEM dialer already writes a real
+            // Tier 0 recording (most non-stock-Android OEMs — MIUI/HyperOS,
+            // ColorOS/Realme UI, FuntouchOS, or Samsung once
+            // SamsungAutoRecordAutomation has switched it on). No point
+            // running our own live capture — and its audio-HAL contention
+            // risk — when Tier 0 alone already gets the recording with zero
+            // interference with the call itself. Self-heals back to live
+            // capture below if Tier 0 goes cold (see
+            // NativeRecordingCapabilityPrefs.preferNativeOnly's doc comment).
+            Log.d(TAG, "Tier 0 has proven reliable on this device — skipping live capture (Tiers 1/2/3).")
+            return
+        }
+        if (callStatePrefs.likelyOutgoing) {
+            // EXTRA_STATE_OFFHOOK fires the instant the user dials an
+            // outgoing call — while the carrier is still setting up the
+            // call, well before it's actually connected (unlike an
+            // incoming call, where OFFHOOK only fires once the user has
+            // already answered). Forcing MODE_IN_COMMUNICATION/speakerphone
+            // and grabbing the VOICE_COMMUNICATION audio source this early
+            // races the platform's own audio HAL for the same audio path
+            // call setup needs — confirmed as the cause of "can't place a
+            // call" reports on weaker audio HALs. A short grace period lets
+            // call setup claim the audio path first; the cost is losing the
+            // first ~1.5s of recorded audio, not the call itself.
+            delay(OUTGOING_CALL_SETUP_GRACE_MS)
         }
         if (audioRecorder.start()) return // Tier 1 (VOICE_COMMUNICATION/MIC) or Tier 2 (VOICE_RECOGNITION)
 
@@ -226,7 +270,16 @@ class CallMonitorService : Service() {
         // polls down to a quick check instead — see
         // NativeRecordingCapabilityPrefs's doc comment for why this stays
         // reversible rather than a permanent one-way switch.
-        val maxAttempts = if (nativeRecordingCapabilityPrefs.isLikelyUnsupported) {
+        // A device that has EVER produced a Tier 0 file (e.g. Samsung, whose
+        // own recorder is known to finalize the file a few seconds later
+        // than other OEMs) always gets the full window even mid-miss-streak
+        // — a miss there is far more likely a slow write than the device
+        // suddenly losing support, and the short window was making that
+        // exact case self-reinforcing (miss → shorter window → more misses).
+        // Only a device that has NEVER matched gets the short/fast-skip poll.
+        val maxAttempts = if (nativeRecordingCapabilityPrefs.isLikelyUnsupported &&
+            !nativeRecordingCapabilityPrefs.hasEverMatched
+        ) {
             NativeRecordingCapabilityPrefs.SHORT_POLL_ATTEMPTS
         } else {
             TIER0_POLL_ATTEMPTS
@@ -301,6 +354,9 @@ class CallMonitorService : Service() {
         // single-query version used to miss).
         private const val TIER0_POLL_ATTEMPTS = 9
         private const val TIER0_POLL_INTERVAL_MS = 2000L
+
+        // See startLiveCaptureIfAllowed's doc comment on the OFFHOOK race.
+        private const val OUTGOING_CALL_SETUP_GRACE_MS = 1500L
 
         const val ACTION_ENSURE_RUNNING = "com.pypecrm.call_recording_engine.action.ENSURE_RUNNING"
         const val ACTION_CALL_RINGING = "com.pypecrm.call_recording_engine.action.CALL_RINGING"

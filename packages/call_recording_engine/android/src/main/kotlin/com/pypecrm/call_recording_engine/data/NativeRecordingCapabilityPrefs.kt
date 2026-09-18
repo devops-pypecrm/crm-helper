@@ -28,17 +28,43 @@ class NativeRecordingCapabilityPrefs(context: Context) {
         get() = prefs.getInt(KEY_CONSECUTIVE_MISSES, 0)
         set(value) = prefs.edit().putInt(KEY_CONSECUTIVE_MISSES, value).apply()
 
+    /** True the moment Tier 0 has EVER matched on this device — sticky
+     * (never cleared by misses) so a device that's proven capable isn't
+     * forgotten after one dry streak; [isLikelyUnsupported] is what tracks
+     * whether it's currently working. */
+    var hasEverMatched: Boolean
+        get() = prefs.getBoolean(KEY_HAS_EVER_MATCHED, false)
+        private set(value) = prefs.edit().putBoolean(KEY_HAS_EVER_MATCHED, value).apply()
+
     val isLikelyUnsupported: Boolean
         get() = consecutiveMissedCalls >= UNSUPPORTED_THRESHOLD
 
+    /** True once this device has proven Tier 0 works and hasn't since gone
+     * cold — see [com.pypecrm.call_recording_engine.service.CallMonitorService.startLiveCaptureIfAllowed],
+     * which skips the live-capture tiers (1/2/3, the ones that force
+     * MODE_IN_COMMUNICATION/speakerphone and race the telephony stack for
+     * the audio HAL) entirely while this holds, since Tier 0 alone is
+     * already producing real recordings with zero live-audio interference.
+     * Self-healing: if Tier 0 then misses [UNSUPPORTED_THRESHOLD] calls in a
+     * row (OS update, user toggling their OEM's setting off, etc.), this
+     * flips back false and live capture resumes as the fallback. */
+    val preferNativeOnly: Boolean
+        get() = hasEverMatched && !isLikelyUnsupported
+
     /** Call once per completed call, after the full poll loop finishes. */
     fun recordCallOutcome(matchFound: Boolean) {
-        consecutiveMissedCalls = if (matchFound) 0 else consecutiveMissedCalls + 1
+        if (matchFound) {
+            hasEverMatched = true
+            consecutiveMissedCalls = 0
+        } else {
+            consecutiveMissedCalls += 1
+        }
     }
 
     companion object {
         private const val PREFS_NAME = "call_recording_engine_native_capability"
         private const val KEY_CONSECUTIVE_MISSES = "consecutive_missed_calls"
+        private const val KEY_HAS_EVER_MATCHED = "has_ever_matched"
 
         /** Calls with zero Tier 0 matches before concluding this device
          * doesn't support it — high enough that a couple of unlucky early

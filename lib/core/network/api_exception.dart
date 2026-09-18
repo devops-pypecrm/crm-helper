@@ -24,11 +24,31 @@ class ApiException implements Exception {
       case DioExceptionType.connectionError:
         return 'Could not reach the server. Check your internet connection.';
       case DioExceptionType.badCertificate:
-        return 'Could not establish a secure connection.';
+        return 'Could not establish a secure connection. Check your device\'s '
+            'date & time are set correctly and try again.';
       case DioExceptionType.cancel:
         return 'Request cancelled.';
       case DioExceptionType.badResponse:
+        return 'Something went wrong. Please try again.';
       case DioExceptionType.unknown:
+        // Dio's catch-all for low-level failures below its own HTTP layer —
+        // most commonly a TLS handshake failure (SocketException/
+        // HandshakeException/TlsException), which on a real device is
+        // almost always a wrong system clock rather than an app bug. That
+        // distinction was previously lost behind a plain "something went
+        // wrong", making a device-specific TLS failure indistinguishable
+        // from a server error.
+        final inner = e.error;
+        final innerText = inner?.toString() ?? '';
+        final looksLikeTls = innerText.contains('HandshakeException') ||
+            innerText.contains('TlsException') ||
+            innerText.contains('CERTIFICATE_VERIFY_FAILED');
+        if (looksLikeTls) {
+          return 'Could not establish a secure connection. This usually means '
+              "your device's date & time is incorrect — check it's set to "
+              'automatic and try again.';
+        }
+        return 'Something went wrong. Please try again.';
       case DioExceptionType.transformTimeout:
         return 'Something went wrong. Please try again.';
     }

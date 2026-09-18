@@ -69,10 +69,24 @@ class SessionController extends _$SessionController {
       final repository = ref.read(authRepositoryProvider);
       final session = await repository.login(email: email, password: password);
 
-      final storage = ref.read(secureStorageServiceProvider);
-      await storage.saveToken(session.token!);
-      await storage.saveUserInfo(jsonEncode(session.toJson()));
-      await _syncNativeAuth(session);
+      // Credentials are already verified by the server at this point — any
+      // failure below is local to this device (most often a corrupted
+      // Android Keystore entry backing secure storage, e.g. after an OS
+      // update or backup restore). Without this catch, that raw
+      // PlatformException bubbled up as-is and looked identical to a failed
+      // login, even though the password was correct.
+      try {
+        final storage = ref.read(secureStorageServiceProvider);
+        await storage.saveToken(session.token!);
+        await storage.saveUserInfo(jsonEncode(session.toJson()));
+        await _syncNativeAuth(session);
+      } catch (_) {
+        throw ApiException(
+          "Signed in, but couldn't save your session on this device. "
+          'Please try again — if this keeps happening, restarting the app '
+          'usually fixes it.',
+        );
+      }
 
       return session;
     });
