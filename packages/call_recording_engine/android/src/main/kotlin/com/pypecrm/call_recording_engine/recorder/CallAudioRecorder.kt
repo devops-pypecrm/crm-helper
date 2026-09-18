@@ -49,6 +49,27 @@ class CallAudioRecorder(private val context: Context) {
     var activeTier: Int? = null
         private set
 
+    /** Which [MediaRecorder.AudioSource] constant actually started — same
+     * lifecycle as [activeTier], just the underlying source rather than the
+     * tier number, for diagnostics (VOICE_COMMUNICATION vs VOICE_RECOGNITION
+     * vs plain MIC makes a real difference to what a "successful" recording
+     * actually contains). */
+    var activeAudioSource: Int? = null
+        private set
+
+    /** True only if `audioManager.isSpeakerphoneOn` read back as `true`
+     * right after we set it — NOT just that the call didn't throw.
+     * Confirmed real-world cause of "recording exists, correct duration,
+     * but no audible far-end voice": on some Android builds (observed on a
+     * stock/near-AOSP device) a non-default-dialer app's speakerphone
+     * force is silently ignored by the platform's Telecom-managed audio
+     * routing — the call to set it succeeds, MediaRecorder still produces
+     * a normal-bitrate file, but there was never real acoustic coupling to
+     * the far-end audio, so the recording is real but near-silent/ambient
+     * only. Same lifecycle as [activeTier]. */
+    var speakerphoneForceConfirmed: Boolean = false
+        private set
+
     val isRecording: Boolean get() = recorder != null
 
     fun start(): Boolean {
@@ -62,6 +83,9 @@ class CallAudioRecorder(private val context: Context) {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to force speakerphone/communication mode", e)
         }
+        // Read back rather than trust the setter not throwing — see
+        // speakerphoneForceConfirmed's doc comment on why this matters.
+        speakerphoneForceConfirmed = audioManager.isSpeakerphoneOn
 
         val file = File(context.cacheDir, "live_call_${System.currentTimeMillis()}.m4a")
         val attempts = buildList {
@@ -75,6 +99,7 @@ class CallAudioRecorder(private val context: Context) {
         for ((tier, source) in attempts) {
             if (tryStart(file, source)) {
                 activeTier = tier
+                activeAudioSource = source
                 outputFile = file
                 return true
             }
@@ -110,7 +135,8 @@ class CallAudioRecorder(private val context: Context) {
     /** Stops recording and returns the file if one was produced — caller
      * (CallMonitorService) is responsible for validating it with
      * [isLikelySilent] before trusting it as a real result. Read
-     * [activeTier] BEFORE calling this — it's cleared here. */
+     * [activeTier]/[activeAudioSource]/[speakerphoneForceConfirmed] BEFORE
+     * calling this — all cleared here. */
     fun stop(): File? {
         val mr = recorder ?: return null
         recorder = null
@@ -130,6 +156,8 @@ class CallAudioRecorder(private val context: Context) {
         }
         outputFile = null
         activeTier = null
+        activeAudioSource = null
+        speakerphoneForceConfirmed = false
         return result
     }
 

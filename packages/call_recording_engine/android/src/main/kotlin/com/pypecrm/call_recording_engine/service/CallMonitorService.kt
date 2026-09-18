@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -19,6 +20,7 @@ import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
 import com.pypecrm.call_recording_engine.data.NativeRecordingCapabilityPrefs
 import com.pypecrm.call_recording_engine.data.PendingCallEvent
+import com.pypecrm.call_recording_engine.debug.EngineDebugLog
 import com.pypecrm.call_recording_engine.net.BackendApi
 import com.pypecrm.call_recording_engine.recorder.CallAudioRecorder
 import com.pypecrm.call_recording_engine.scanner.NativeRecordingScanner
@@ -196,8 +198,10 @@ class CallMonitorService : Service() {
         val startedAt = callStatePrefs.callStartTimeMillis
         val expectedNumberSuffix = PhoneNumberUtils.last10Digits(callStatePrefs.expectedNumber)
         callStatePrefs.expectedNumber = null // consumed — don't leak into the next call
-        // Read the tier BEFORE stop() — it resets to null.
+        // Read BEFORE stop() — all reset to null/false there.
         val capturedTier = audioRecorder.activeTier
+        val capturedAudioSource = audioRecorder.activeAudioSource
+        val capturedSpeakerphoneConfirmed = audioRecorder.speakerphoneForceConfirmed
         val liveFile = if (audioRecorder.isRecording) audioRecorder.stop() else null
 
         val details = CallLogLookup.awaitLatestCallDetails(
@@ -237,13 +241,33 @@ class CallMonitorService : Service() {
             // upload, and only if the file actually looks like real audio
             // (see CallAudioRecorder.isLikelySilent — the "succeeded but
             // silent" guard the plan calls out for these tiers).
-            if (!uploaded && liveFile != null &&
-                !CallAudioRecorder.isLikelySilent(liveFile, details.durationSeconds)
-            ) {
-                uploaded = runCatching { api.uploadRecording(event, liveFile) }.getOrDefault(false)
-                if (uploaded) {
-                    val now = System.currentTimeMillis()
-                    if (capturedTier == 2) engineStats.recordTier2Success(now) else engineStats.recordTier1Success(now)
+            if (liveFile != null) {
+                val likelySilent = CallAudioRecorder.isLikelySilent(liveFile, details.durationSeconds)
+                // Tier 1/2's only visibility outside a live adb session — no
+                // exception here means MediaRecorder "succeeded", but that
+                // says nothing about whether it actually captured the
+                // far-end voice. speakerphoneConfirmed=false is the most
+                // likely explanation for a normal-looking, non-"silent"
+                // (by byte-rate) file that still turns out to have no
+                // audible far-end voice: a non-default-dialer app's
+                // speakerphone force can be silently ignored by the
+                // platform's Telecom-managed audio routing on some Android
+                // builds — MediaRecorder then just captures ambient
+                // room/mic noise instead of the call, which still produces
+                // a normal bitrate and so isn't caught by the byte-rate
+                // check at all.
+                EngineDebugLog(this).append(
+                    "LIVE_CAPTURE_ATTEMPT",
+                    "tier=$capturedTier source=${audioSourceName(capturedAudioSource)} " +
+                        "speakerphoneConfirmed=$capturedSpeakerphoneConfirmed " +
+                        "fileBytes=${liveFile.length()} durationSecs=${details.durationSeconds} likelySilent=$likelySilent",
+                )
+                if (!uploaded && !likelySilent) {
+                    uploaded = runCatching { api.uploadRecording(event, liveFile) }.getOrDefault(false)
+                    if (uploaded) {
+                        val now = System.currentTimeMillis()
+                        if (capturedTier == 2) engineStats.recordTier2Success(now) else engineStats.recordTier1Success(now)
+                    }
                 }
             }
         }
@@ -258,6 +282,14 @@ class CallMonitorService : Service() {
         }
 
         updateNotification(statusTextFor(null))
+    }
+
+    private fun audioSourceName(source: Int?): String = when (source) {
+        MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "VOICE_COMMUNICATION"
+        MediaRecorder.AudioSource.VOICE_RECOGNITION -> "VOICE_RECOGNITION"
+        MediaRecorder.AudioSource.MIC -> "MIC"
+        null -> "none"
+        else -> "unknown($source)"
     }
 
     private suspend fun pollTier0(phoneNumber: String, callEndMillis: Long): File? {
