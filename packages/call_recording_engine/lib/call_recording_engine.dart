@@ -215,7 +215,7 @@ class EngineStatus {
       tier0SuccessCount + tier1SuccessCount + tier2SuccessCount + tier3SuccessCount + tier4SuccessCount;
 }
 
-enum ManualSyncStatus { success, rateLimited, failed, permissionMissing, notSignedIn }
+enum ManualSyncStatus { success, rateLimited, failed, permissionMissing, notSignedIn, noConnection }
 
 /// Real outcome of [CallRecordingEngine.syncCallLogsNow] /
 /// [CallRecordingEngine.reverifyToday] — both now run inline and don't
@@ -229,6 +229,7 @@ class ManualSyncResult {
     this.pendingCount = 0,
     this.retryAfterSeconds,
     this.httpCode,
+    this.errorMessage,
   });
 
   factory ManualSyncResult.fromMap(Map<String, Object?> map) {
@@ -237,6 +238,7 @@ class ManualSyncResult {
       'rateLimited' => ManualSyncStatus.rateLimited,
       'permissionMissing' => ManualSyncStatus.permissionMissing,
       'notSignedIn' => ManualSyncStatus.notSignedIn,
+      'noConnection' => ManualSyncStatus.noConnection,
       _ => ManualSyncStatus.failed,
     };
     return ManualSyncResult(
@@ -246,6 +248,7 @@ class ManualSyncResult {
       pendingCount: (map['pendingCount'] as num?)?.toInt() ?? 0,
       retryAfterSeconds: (map['retryAfterSeconds'] as num?)?.toInt(),
       httpCode: (map['httpCode'] as num?)?.toInt(),
+      errorMessage: map['message'] as String?,
     );
   }
 
@@ -261,4 +264,11 @@ class ManualSyncResult {
   /// change until the user re-authenticates; anything else is more likely
   /// transient (server error) and will probably heal on its own retry.
   final int? httpCode;
+
+  /// The server's response body (truncated) for an HTTP failure, or the
+  /// raw exception message (e.g. "Unable to resolve host", "timeout") for
+  /// a network-level failure ([httpCode] null) — surfaced so a repeated
+  /// "network error" is actually diagnosable from the snackbar alone,
+  /// instead of requiring a trip to the Advanced screen's event log.
+  final String? errorMessage;
 }

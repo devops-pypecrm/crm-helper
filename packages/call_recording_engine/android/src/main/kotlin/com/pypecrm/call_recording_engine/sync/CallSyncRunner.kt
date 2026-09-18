@@ -3,6 +3,8 @@ package com.pypecrm.call_recording_engine.sync
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.core.content.ContextCompat
 import com.pypecrm.call_recording_engine.data.CallEventDbHelper
 import com.pypecrm.call_recording_engine.data.EngineStats
@@ -17,7 +19,14 @@ import com.pypecrm.call_recording_engine.net.BulkSyncResult
 sealed class SyncOutcome {
     data class Success(val reconciledCount: Int, val syncedCount: Int, val pendingCount: Int) : SyncOutcome()
     data class RateLimited(val reconciledCount: Int, val pendingCount: Int, val retryAfterSeconds: Int) : SyncOutcome()
-    data class Failed(val reconciledCount: Int, val pendingCount: Int, val httpCode: Int?) : SyncOutcome()
+    data class Failed(val reconciledCount: Int, val pendingCount: Int, val httpCode: Int?, val message: String?) : SyncOutcome()
+    /** No usable network right now (per [ConnectivityManager]) — distinct from
+     * [Failed] because it's an expected, self-explanatory state (not connected
+     * yet), not something that went wrong. The periodic worker never sees
+     * this case (WorkManager's own NetworkType.CONNECTED constraint already
+     * keeps it from running at all without a network); it's specific to the
+     * manual re-check path, which runs inline and has no such gate. */
+    data class NoConnection(val reconciledCount: Int, val pendingCount: Int) : SyncOutcome()
     object PermissionMissing : SyncOutcome()
     object NotSignedIn : SyncOutcome()
 }
@@ -59,6 +68,10 @@ object CallSyncRunner {
         val pending = dbHelper.unsyncedEvents()
         if (pending.isEmpty()) return SyncOutcome.Success(reconciledCount, syncedCount = 0, pendingCount = 0)
 
+        if (!hasUsableNetwork(context)) {
+            return SyncOutcome.NoConnection(reconciledCount, pending.size)
+        }
+
         val api = BackendApi(authPrefs)
         return when (val result = api.bulkSync(pending)) {
             is BulkSyncResult.Success -> {
@@ -97,8 +110,24 @@ object CallSyncRunner {
                     "${pending.size} call(s) still pending — httpCode=${result.httpCode} ${result.message.orEmpty()}".trim(),
                     level = "error",
                 )
-                SyncOutcome.Failed(reconciledCount, pending.size, result.httpCode)
+                SyncOutcome.Failed(reconciledCount, pending.size, result.httpCode, result.message)
             }
         }
+    }
+
+    /** Mirrors the check WorkManager's own `NetworkType.CONNECTED` constraint
+     * makes for the periodic path — this path has no such constraint (it runs
+     * inline from a direct method call, not a scheduled job), so without this
+     * check a device with no/flaky connectivity would attempt the request
+     * anyway and surface a raw, unhelpful exception instead of a clear
+     * "not connected" outcome. `NET_CAPABILITY_VALIDATED` catches the "on
+     * WiFi but no real internet" case (captive portal, router with no
+     * upstream), not just "no network at all". */
+    private fun hasUsableNetwork(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val network = cm.activeNetwork ?: return false
+        val capabilities = cm.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 }

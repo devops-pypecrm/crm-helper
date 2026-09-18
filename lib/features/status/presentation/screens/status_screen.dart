@@ -183,9 +183,12 @@ class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProvi
         message = 'Server is busy — will retry automatically in a few minutes.';
         color = Colors.orange;
       case ManualSyncStatus.failed:
-        message = result.httpCode == 401 || result.httpCode == 403
-            ? 'Session expired — please sign out and sign in again to resume syncing.'
-            : 'Sync failed (${result.httpCode ?? 'network error'}) — ${result.pendingCount} call(s) still pending. Will retry automatically.';
+        if (result.httpCode == 401 || result.httpCode == 403) {
+          message = 'Session expired — please sign out and sign in again to resume syncing.';
+        } else {
+          final detail = result.httpCode?.toString() ?? result.errorMessage ?? 'network error';
+          message = 'Sync failed ($detail) — ${result.pendingCount} call(s) still pending. Will retry automatically.';
+        }
         color = Colors.red;
       case ManualSyncStatus.permissionMissing:
         message = 'Call Log permission is missing — grant it in Required Permissions to sync calls.';
@@ -193,6 +196,11 @@ class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProvi
       case ManualSyncStatus.notSignedIn:
         message = 'Not signed in — sign in to the app first.';
         color = Colors.red;
+      case ManualSyncStatus.noConnection:
+        message = result.reconciledCount > 0
+            ? '${result.reconciledCount} call(s) found and saved locally — connect to WiFi or mobile data to upload them.'
+            : 'No internet connection — connect to WiFi or mobile data and try again.';
+        color = Colors.orange;
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: color),

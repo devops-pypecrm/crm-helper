@@ -341,6 +341,12 @@ class CallRecordingEnginePlugin :
             "reconciledCount" to outcome.reconciledCount,
             "pendingCount" to outcome.pendingCount,
             "httpCode" to outcome.httpCode,
+            "message" to outcome.message,
+        )
+        is SyncOutcome.NoConnection -> mapOf(
+            "status" to "noConnection",
+            "reconciledCount" to outcome.reconciledCount,
+            "pendingCount" to outcome.pendingCount,
         )
         SyncOutcome.PermissionMissing -> mapOf("status" to "permissionMissing")
         SyncOutcome.NotSignedIn -> mapOf("status" to "notSignedIn")
