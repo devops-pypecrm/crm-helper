@@ -28,9 +28,11 @@ import com.pypecrm.call_recording_engine.sync.CallSyncWorker
 import com.pypecrm.call_recording_engine.util.CallLogLookup
 import com.pypecrm.call_recording_engine.util.DeviceCapabilities
 import com.pypecrm.call_recording_engine.util.PhoneNumberUtils
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -54,7 +56,18 @@ import java.io.File
  */
 class CallMonitorService : Service() {
 
-    private val jobScope = CoroutineScope(Dispatchers.IO + Job())
+    // SupervisorJob (not a plain Job) + a CoroutineExceptionHandler: without
+    // both, an uncaught exception anywhere in startLiveCaptureIfAllowed()/
+    // handleCallEnded() - both run on every single call - crashes the whole
+    // app process instead of just failing that one step. Confirmed as a real
+    // path: NativeRecordingScanner's Tier 0 fallback lookup had exactly this
+    // kind of unguarded throw (see its doc comment), reported as "PypeCRM
+    // Helper keeps stopping" during calls. This is the safety net for
+    // whatever the next unguarded throw turns out to be.
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "Uncaught exception in CallMonitorService coroutine - call handling continues, this step failed", throwable)
+    }
+    private val jobScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
 
     private lateinit var callStatePrefs: CallStatePrefs
     private lateinit var nativeRecordingCapabilityPrefs: NativeRecordingCapabilityPrefs

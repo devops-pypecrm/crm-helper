@@ -22,9 +22,11 @@ import com.pypecrm.call_recording_engine.recorder.ProjectionAudioRecorder
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
 import com.pypecrm.call_recording_engine.util.CallLogLookup
 import com.pypecrm.call_recording_engine.util.PhoneNumberUtils
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
@@ -54,7 +56,14 @@ import kotlinx.coroutines.launch
  * this one call, so the two services never both try to process it.
  */
 class ProjectionCaptureService : Service() {
-    private val jobScope = CoroutineScope(Dispatchers.IO + Job())
+    // SupervisorJob + CoroutineExceptionHandler, not a plain Job - see
+    // CallMonitorService's identical fix for why an uncaught exception here
+    // would otherwise crash the whole app rather than just failing this call's
+    // Tier 3 handling.
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "Uncaught exception in ProjectionCaptureService coroutine", throwable)
+    }
+    private val jobScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
     private val recorder by lazy { ProjectionAudioRecorder(this) }
 
     private lateinit var callStatePrefs: CallStatePrefs

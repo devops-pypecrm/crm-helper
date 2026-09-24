@@ -170,7 +170,19 @@ object NativeRecordingScanner {
 
         if (candidates.size != 1) return null
         val candidate = candidates.first()
-        return copyToCache(context, uri, candidate.id, candidate.name, candidate.mimeType)
+        // Unlike queryMatching's call to this same helper (inside its own
+        // try/catch above), this call site was unguarded - openInputStream()/
+        // copyTo() can throw (file deleted between query and open, revoked
+        // storage permission, I/O error) and, with no CoroutineExceptionHandler
+        // on CallMonitorService's jobScope, an uncaught exception here crashed
+        // the whole app mid-call (reported as "PypeCRM Helper keeps stopping"
+        // during Tier 0 polling at call-end).
+        return try {
+            copyToCache(context, uri, candidate.id, candidate.name, candidate.mimeType)
+        } catch (e: Exception) {
+            Log.e(TAG, "copyToCache failed for fallback candidate ${candidate.id}", e)
+            null
+        }
     }
 
     private fun copyToCache(context: Context, uri: android.net.Uri, id: Long, name: String, mimeType: String?): File? {
