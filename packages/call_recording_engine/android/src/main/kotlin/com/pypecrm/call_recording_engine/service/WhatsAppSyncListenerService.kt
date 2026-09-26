@@ -10,8 +10,10 @@ import com.pypecrm.call_recording_engine.data.WhatsAppQueueStore
 import com.pypecrm.call_recording_engine.net.BackendApi
 import com.pypecrm.call_recording_engine.net.WhatsAppSyncResult
 import com.pypecrm.call_recording_engine.sync.WhatsAppSyncWorker
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
@@ -40,6 +42,20 @@ import kotlinx.coroutines.launch
  * client-side on/off flag is needed on top of that.
  */
 class WhatsAppSyncListenerService : NotificationListenerService() {
+
+    // Same fix as CallMonitorService/ProjectionCaptureService (see
+    // b569b1b, "stop PypeCRM Helper crashing mid-call from unguarded
+    // coroutine exceptions") — this service has the identical
+    // plain-CoroutineScope anti-pattern, just missed by that fix.
+    // onNotificationPosted() fires on every single inbound WhatsApp
+    // message, a much higher-frequency trigger than "once per call", so an
+    // uncaught exception here (a network error, a bad server response, a
+    // WhatsAppQueueStore I/O failure) crashing the whole app process shows
+    // up as "keeps stopping" far more often than the call-path crash did.
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "Uncaught exception in WhatsAppSyncListenerService coroutine - this message's sync failed, listener continues", throwable)
+    }
+    private val syncScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
 
     private var lastMessage: String? = null
     private var lastContact: String? = null
@@ -79,7 +95,7 @@ class WhatsAppSyncListenerService : NotificationListenerService() {
         val authPrefs = NativeAuthPrefs(applicationContext)
         if (!authPrefs.isSignedIn()) return
 
-        CoroutineScope(Dispatchers.IO).launch {
+        syncScope.launch {
             val api = BackendApi(authPrefs)
             when (api.syncWhatsAppMessage(contact, message)) {
                 WhatsAppSyncResult.Success ->
