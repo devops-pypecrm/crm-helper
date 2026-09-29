@@ -211,6 +211,12 @@ class CallMonitorService : Service() {
         val startedAt = callStatePrefs.callStartTimeMillis
         val expectedNumberSuffix = PhoneNumberUtils.last10Digits(callStatePrefs.expectedNumber)
         callStatePrefs.expectedNumber = null // consumed — don't leak into the next call
+        // Only trust likelyOutgoing as a CallLogLookup hint when THIS call
+        // cycle actually reached OFFHOOK (see CallStatePrefs.
+        // reachedOffhookThisCall's doc comment) — otherwise (a call that
+        // rang and was never answered) it could still hold a stale value
+        // left over from an earlier call.
+        val expectedType = if (callStatePrefs.reachedOffhookThisCall && callStatePrefs.likelyOutgoing) "OUTGOING" else null
         // Read BEFORE stop() — all reset to null/false there.
         val capturedTier = audioRecorder.activeTier
         val capturedAudioSource = audioRecorder.activeAudioSource
@@ -218,7 +224,7 @@ class CallMonitorService : Service() {
         val liveFile = if (audioRecorder.isRecording) audioRecorder.stop() else null
 
         val details = CallLogLookup.awaitLatestCallDetails(
-            this, startedAt, expectedNumberSuffix.ifEmpty { null }
+            this, startedAt, expectedNumberSuffix.ifEmpty { null }, expectedType
         )
         if (details == null) {
             Log.w(TAG, "Call ended but no CallLog entry appeared — nothing to sync.")

@@ -68,6 +68,12 @@ class CallStateReceiver : BroadcastReceiver() {
                 if (callStatePrefs.isCallActive) return
                 callStatePrefs.isCallActive = true
                 callStatePrefs.callStartTimeMillis = System.currentTimeMillis()
+                // New call cycle starting — clear the previous call's
+                // OFFHOOK marker so a call that ends up never being
+                // answered (RINGING -> IDLE, no OFFHOOK) doesn't leave
+                // handleCallEnded() trusting a stale likelyOutgoing value
+                // left over from an earlier call.
+                callStatePrefs.reachedOffhookThisCall = false
                 EngineDebugLog(context).append("CALL_RINGING", "incoming call detected")
                 startMonitorService(context, CallMonitorService.ACTION_CALL_RINGING)
             }
@@ -78,8 +84,16 @@ class CallStateReceiver : BroadcastReceiver() {
                 if (!callStatePrefs.isCallActive) {
                     callStatePrefs.isCallActive = true
                     callStatePrefs.callStartTimeMillis = System.currentTimeMillis()
+                    // Same reset as the RINGING branch, for the direct
+                    // IDLE -> OFFHOOK case (a fresh outgoing call, so there
+                    // was no RINGING transition to reset it there instead).
+                    callStatePrefs.reachedOffhookThisCall = false
                 }
                 callStatePrefs.likelyOutgoing = previousState != TelephonyManager.CALL_STATE_RINGING
+                // This call cycle has now genuinely reached OFFHOOK — the
+                // likelyOutgoing value just written above is fresh and safe
+                // for CallLogLookup to use as a matching hint at call-end.
+                callStatePrefs.reachedOffhookThisCall = true
                 EngineDebugLog(context).append(
                     "CALL_ACTIVE",
                     if (callStatePrefs.likelyOutgoing) "outgoing call connected" else "incoming call answered",

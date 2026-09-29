@@ -37,6 +37,19 @@ class CallStatePrefs(context: Context) {
         get() = prefs.getBoolean(KEY_LIKELY_OUTGOING, false)
         set(value) = prefs.edit().putBoolean(KEY_LIKELY_OUTGOING, value).apply()
 
+    /** Whether THIS call cycle actually reached OFFHOOK — [likelyOutgoing]
+     * is only ever written inside the OFFHOOK branch, so for a call that
+     * rang and was never answered (RINGING -> IDLE with no OFFHOOK in
+     * between), [likelyOutgoing] still holds whatever an EARLIER call left
+     * behind. Reset to false at the start of every new call cycle (both
+     * the RINGING and the direct-OFFHOOK-from-IDLE case), set true only
+     * once OFFHOOK actually fires — lets [likelyOutgoing] be trusted as a
+     * CallLogLookup matching hint at call-end without re-deriving whether
+     * it's stale from scratch there. */
+    var reachedOffhookThisCall: Boolean
+        get() = prefs.getBoolean(KEY_REACHED_OFFHOOK, false)
+        set(value) = prefs.edit().putBoolean(KEY_REACHED_OFFHOOK, value).apply()
+
     /** Number from `TelephonyManager.EXTRA_INCOMING_NUMBER`, when the OS
      * hands it to us at RINGING — reliable for incoming calls, always null
      * for outgoing ones (the OS never provides an outgoing number to a
@@ -54,6 +67,7 @@ class CallStatePrefs(context: Context) {
         private const val KEY_START_TIME = "call_start_time"
         private const val KEY_LAST_STATE = "last_state"
         private const val KEY_LIKELY_OUTGOING = "likely_outgoing"
+        private const val KEY_REACHED_OFFHOOK = "reached_offhook_this_call"
         private const val KEY_EXPECTED_NUMBER = "expected_number"
     }
 }

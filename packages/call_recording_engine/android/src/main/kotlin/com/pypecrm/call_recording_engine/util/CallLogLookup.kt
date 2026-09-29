@@ -31,8 +31,19 @@ data class CallLogDetails(
  * that row's (possibly zero) duration for the wrong call. [expectedNumberSuffix]
  * (from [com.pypecrm.call_recording_engine.data.CallStatePrefs.expectedNumber],
  * only ever populated for incoming calls) is used as a preference among the
- * most recent candidates when available, without weakening outgoing-call
- * matching, which still has no number to check against.
+ * most recent candidates when available.
+ *
+ * For OUTGOING calls there's still no number to check against (Android
+ * never hands one to a non-default-dialer app — see CallStateReceiver's
+ * doc comment) — that gap is exactly what caused a real connected outgoing
+ * call to get logged as "failed"/no-answer when an unrelated CallLog row
+ * (e.g. a call on the other SIM, a spam-blocked entry) landed nearby and
+ * had no number to disqualify it. [expectedType] (from
+ * [com.pypecrm.call_recording_engine.data.CallStatePrefs.likelyOutgoing],
+ * a free, permission-less direction guess CallStateReceiver already
+ * computes) closes that gap as a second-tier preference: prefer a
+ * candidate whose own CallLog TYPE matches the direction we already know
+ * this call was, before falling back to "most recent."
  */
 object CallLogLookup {
     private const val TAG = "CallLogLookup"
@@ -50,9 +61,10 @@ object CallLogLookup {
         context: Context,
         callStartedAtMillis: Long,
         expectedNumberSuffix: String? = null,
+        expectedType: String? = null,
     ): CallLogDetails? {
         repeat(MAX_ATTEMPTS) { attempt ->
-            val details = queryOnce(context, callStartedAtMillis, expectedNumberSuffix)
+            val details = queryOnce(context, callStartedAtMillis, expectedNumberSuffix, expectedType)
             if (details != null) return details
             if (attempt < MAX_ATTEMPTS - 1) delay(RETRY_DELAY_MS)
         }
@@ -60,7 +72,12 @@ object CallLogLookup {
         return null
     }
 
-    private fun queryOnce(context: Context, callStartedAtMillis: Long, expectedNumberSuffix: String?): CallLogDetails? {
+    private fun queryOnce(
+        context: Context,
+        callStartedAtMillis: Long,
+        expectedNumberSuffix: String?,
+        expectedType: String?,
+    ): CallLogDetails? {
         try {
             context.contentResolver.query(
                 CallLog.Calls.CONTENT_URI,
@@ -97,15 +114,18 @@ object CallLogLookup {
                 }
                 if (candidates.isEmpty()) return null
 
-                // Prefer a candidate whose number matches the expected
-                // suffix (incoming calls only — see class doc comment);
-                // otherwise the most recent candidate, same as before.
-                val chosen = if (!expectedNumberSuffix.isNullOrEmpty()) {
+                // Three-tier preference: an exact number match (incoming
+                // calls only) beats a direction-type match (mainly helps
+                // outgoing calls, which have no number to check), which
+                // beats the "most recent" fallback used when neither hint
+                // is available or nothing matches.
+                val numberMatch = if (!expectedNumberSuffix.isNullOrEmpty()) {
                     candidates.firstOrNull { it.number.filter(Char::isDigit).endsWith(expectedNumberSuffix) }
-                        ?: candidates.first()
-                } else {
-                    candidates.first()
-                }
+                } else null
+                val typeMatch = if (numberMatch == null && expectedType != null) {
+                    candidates.firstOrNull { typeToString(it.typeInt) == expectedType }
+                } else null
+                val chosen = numberMatch ?: typeMatch ?: candidates.first()
 
                 val typeStr = typeToString(chosen.typeInt)
                 if (typeStr == "UNKNOWN") {

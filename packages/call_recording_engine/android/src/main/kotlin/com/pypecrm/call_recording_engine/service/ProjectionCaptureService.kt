@@ -110,10 +110,13 @@ class ProjectionCaptureService : Service() {
         val startedAt = callStatePrefs.callStartTimeMillis
         val expectedNumberSuffix = PhoneNumberUtils.last10Digits(callStatePrefs.expectedNumber)
         callStatePrefs.expectedNumber = null // consumed — don't leak into the next call
+        // Same staleness guard as CallMonitorService.handleCallEnded — see
+        // CallStatePrefs.reachedOffhookThisCall's doc comment.
+        val expectedType = if (callStatePrefs.reachedOffhookThisCall && callStatePrefs.likelyOutgoing) "OUTGOING" else null
         val file = recorder.stop()
 
         val details = CallLogLookup.awaitLatestCallDetails(
-            this, startedAt, expectedNumberSuffix.ifEmpty { null }
+            this, startedAt, expectedNumberSuffix.ifEmpty { null }, expectedType
         )
         if (details == null) {
             Log.w(TAG, "Tier 3: call ended but no CallLog entry appeared — nothing to sync.")
