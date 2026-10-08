@@ -1,6 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- typeWindowStateChanged, not typeAllMask: this service's
+     onAccessibilityEvent is a deliberate no-op (see
+     CallRecordingAccessibilityService's doc comment — just being enabled
+     is what unlocks the VOICE_RECOGNITION audio source, nothing in this
+     app actually reacts to events), and SamsungAutoRecordAutomation drives
+     itself via rootInActiveWindow polling, which works independent of
+     event subscription entirely. typeAllMask was subscribing this service
+     to EVERY accessibility event from EVERY app system-wide — every touch,
+     scroll, and focus change on the whole device — for literally nothing,
+     real system-wide IPC/dispatch overhead with zero functional benefit.
+     Believed root cause of reports that the phone is unusable until this
+     app is force-stopped. typeWindowStateChanged (screen-change events
+     only) is the minimal non-zero subscription that still lets
+     accessibility event delivery work at all on every Android version. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagDefault"
     android:canRetrieveWindowContent="true"
