@@ -1,4 +1,11 @@
-# dad_call_recorder
+# dad_call_recorder ("PypeCRM Helper")
+
+> **Pending retirement — not yet sunset.** `Dad-dialer` is gaining a Play-safe recording path (Tier 0 + a
+> server-number/conference-bridge method — see `Dad-dialer/CALL_RECORDING_SERVER_METHOD_PLAN.md`) intended to
+> replace this app's need to exist. Retirement is gated on that method reaching real coverage parity with this
+> app's 5-tier chain in side-by-side field testing (Phase 4 of that plan) — not started yet. Until that
+> validation happens and a retirement date is actually set, this app keeps shipping/updating as normal; don't
+> treat this note as "already deprecated."
 
 A new Flutter project.
 
