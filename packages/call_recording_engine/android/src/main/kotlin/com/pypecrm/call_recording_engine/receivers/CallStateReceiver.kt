@@ -48,15 +48,31 @@ class CallStateReceiver : BroadcastReceiver() {
 
         val callStatePrefs = CallStatePrefs(context)
         val previousState = callStatePrefs.lastPhoneState
-        if (previousState == callState) return
-        callStatePrefs.lastPhoneState = callState
+        val incomingNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
+            ?.takeIf { it.isNotBlank() }
 
         // Reliable for incoming calls only (EXTRA_INCOMING_NUMBER is never
-        // populated for outgoing ones) — captured whenever present, used as
-        // a CallLogLookup matching hint, not a hard requirement.
-        intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)?.let {
-            callStatePrefs.expectedNumber = it
+        // populated for outgoing ones) — used as a CallLogLookup matching
+        // hint, not a hard requirement. Must be read BEFORE the duplicate-
+        // state early return below: on Android 9+ the system sends each
+        // state change twice to apps holding READ_CALL_LOG — first without
+        // the number, then again (same state) with it — so the number only
+        // ever arrives on the broadcast that early return used to discard.
+        if (previousState == callState) {
+            if (incomingNumber != null && callState != TelephonyManager.CALL_STATE_IDLE) {
+                callStatePrefs.expectedNumber = incomingNumber
+            }
+            return
         }
+        callStatePrefs.lastPhoneState = callState
+
+        // A fresh call cycle (leaving IDLE) must not inherit the previous
+        // call's number — an outgoing call never supplies one, so a stale
+        // incoming number would steer CallLogLookup to the wrong row.
+        if (previousState == TelephonyManager.CALL_STATE_IDLE) {
+            callStatePrefs.expectedNumber = null
+        }
+        incomingNumber?.let { callStatePrefs.expectedNumber = it }
 
         when (callState) {
             TelephonyManager.CALL_STATE_RINGING -> {

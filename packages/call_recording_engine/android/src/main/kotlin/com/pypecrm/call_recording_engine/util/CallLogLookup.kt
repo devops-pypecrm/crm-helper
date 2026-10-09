@@ -50,6 +50,9 @@ object CallLogLookup {
     private const val MAX_ATTEMPTS = 20
     private const val RETRY_DELAY_MS = 3000L
     private const val CANDIDATE_LIMIT = 5
+    // 3 polls x 3s ≈ 6-9s of an unchanged 0s row — longer than any OEM's
+    // observed CallLog DURATION write lag.
+    private const val ZERO_DURATION_STABLE_POLLS = 3
 
     // A row dated meaningfully before the call started is stale (from a
     // previous call) — the system just hasn't written this call's row yet.
@@ -63,13 +66,43 @@ object CallLogLookup {
         expectedNumberSuffix: String? = null,
         expectedType: String? = null,
     ): CallLogDetails? {
+        // An unanswered outgoing call (or a 0s incoming one) keeps DURATION=0
+        // forever, so "duration > 0" never arrives for it — previously that
+        // meant waiting the full ~60s and then returning null, so the live
+        // path dropped every no-answer dial. Once the same zero-duration row
+        // has been the chosen candidate for ZERO_DURATION_STABLE_POLLS polls
+        // in a row, it's final: accept it.
+        var lastZeroRowId: Long? = null
+        var zeroRowSeenCount = 0
         repeat(MAX_ATTEMPTS) { attempt ->
-            val details = queryOnce(context, callStartedAtMillis, expectedNumberSuffix, expectedType)
-            if (details != null) return details
+            when (val result = queryOnce(context, callStartedAtMillis, expectedNumberSuffix, expectedType)) {
+                is LookupResult.Final -> return result.details
+                is LookupResult.Unfinalized -> {
+                    if (result.details.hardwareId.toLongOrNull() == lastZeroRowId) {
+                        zeroRowSeenCount++
+                    } else {
+                        lastZeroRowId = result.details.hardwareId.toLongOrNull()
+                        zeroRowSeenCount = 1
+                    }
+                    if (zeroRowSeenCount >= ZERO_DURATION_STABLE_POLLS) return result.details
+                }
+                LookupResult.None -> {
+                    lastZeroRowId = null
+                    zeroRowSeenCount = 0
+                }
+            }
             if (attempt < MAX_ATTEMPTS - 1) delay(RETRY_DELAY_MS)
         }
         Log.w(TAG, "No CallLog entry appeared for call started at $callStartedAtMillis after $MAX_ATTEMPTS attempts")
         return null
+    }
+
+    private sealed class LookupResult {
+        data class Final(val details: CallLogDetails) : LookupResult()
+        /** Row found but DURATION is still 0 — either not written yet, or a
+         * genuinely zero-length call (see awaitLatestCallDetails). */
+        data class Unfinalized(val details: CallLogDetails) : LookupResult()
+        object None : LookupResult()
     }
 
     private fun queryOnce(
@@ -77,7 +110,7 @@ object CallLogLookup {
         callStartedAtMillis: Long,
         expectedNumberSuffix: String?,
         expectedType: String?,
-    ): CallLogDetails? {
+    ): LookupResult {
         try {
             context.contentResolver.query(
                 CallLog.Calls.CONTENT_URI,
@@ -112,7 +145,7 @@ object CallLogLookup {
                         )
                     )
                 }
-                if (candidates.isEmpty()) return null
+                if (candidates.isEmpty()) return LookupResult.None
 
                 // Three-tier preference: an exact number match (incoming
                 // calls only) beats a direction-type match (mainly helps
@@ -144,20 +177,19 @@ object CallLogLookup {
                 // Only trust this row once it looks finalized: a real
                 // duration, or a type that's legitimately always zero.
                 val isFinalized = chosen.duration > 0 || typeStr in FINAL_ZERO_DURATION_TYPES
-                if (!isFinalized) return null
-
-                return CallLogDetails(
+                val details = CallLogDetails(
                     phoneNumber = chosen.number,
                     durationSeconds = chosen.duration,
                     callType = typeStr,
                     timestampMillis = chosen.date,
                     hardwareId = chosen.id.toString(),
                 )
+                return if (isFinalized) LookupResult.Final(details) else LookupResult.Unfinalized(details)
             }
         } catch (e: Exception) {
             Log.e(TAG, "CallLog query failed", e)
         }
-        return null
+        return LookupResult.None
     }
 
     private fun typeToString(typeInt: Int): String = when (typeInt) {

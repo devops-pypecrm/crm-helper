@@ -21,8 +21,7 @@ import java.util.concurrent.TimeUnit
  * calls whose Tier 0 upload couldn't run at call-end (no network). Always
  * sends the ENTIRE unsynced queue in one `POST /api/android/bulk-sync` call
  * — never per-event — because the server rate-limits that endpoint to
- * 1 request/user/30sec (Dad-backend/src/routes/androidRoutes.ts — shortened
- * from an original 10min).
+ * 1 request/user/30sec (Dad-backend/src/routes/androidRoutes.ts).
  * Self-throttles client-side against that same limit via [EngineStats] so a
  * device that just synced doesn't even attempt a run it knows will 429.
  */
@@ -79,7 +78,12 @@ class CallSyncWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .build()
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+                // APPEND_OR_REPLACE, not REPLACE: REPLACE cancelled a sync
+                // already mid-upload whenever another call ended, so on a busy
+                // calling day the queue could keep getting interrupted. This
+                // chains a fresh run after the current one instead (which
+                // picks up whatever was queued meanwhile).
+                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
 
         /** Periodic safety net (WorkManager's minimum period is 15 minutes)

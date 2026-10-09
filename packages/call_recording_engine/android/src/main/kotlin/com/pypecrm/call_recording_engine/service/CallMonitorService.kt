@@ -20,6 +20,7 @@ import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
 import com.pypecrm.call_recording_engine.data.NativeRecordingCapabilityPrefs
 import com.pypecrm.call_recording_engine.data.PendingCallEvent
+import com.pypecrm.call_recording_engine.data.PendingRecordingStore
 import com.pypecrm.call_recording_engine.debug.EngineDebugLog
 import com.pypecrm.call_recording_engine.net.BackendApi
 import com.pypecrm.call_recording_engine.recorder.CallAudioRecorder
@@ -84,6 +85,13 @@ class CallMonitorService : Service() {
      * also process it (would double-queue/double-upload). */
     @Volatile private var tier3Delegated = false
 
+    /** The in-flight [startLiveCaptureIfAllowed] job. It can still be
+     * running (settings fetch over the network, the outgoing-call grace
+     * delay) when a short call ends — [handleCallEnded] must cancel and
+     * wait for it first, otherwise capture could start AFTER the call ended
+     * and keep the microphone recording until the next call. */
+    @Volatile private var liveCaptureJob: Job? = null
+
     override fun onCreate() {
         super.onCreate()
         callStatePrefs = CallStatePrefs(this)
@@ -114,7 +122,10 @@ class CallMonitorService : Service() {
         )
 
         when (intent?.action) {
-            ACTION_CALL_ACTIVE -> jobScope.launch { startLiveCaptureIfAllowed() }
+            ACTION_CALL_ACTIVE -> {
+                liveCaptureJob?.cancel()
+                liveCaptureJob = jobScope.launch { startLiveCaptureIfAllowed() }
+            }
             ACTION_CALL_ENDED -> jobScope.launch { handleCallEnded() }
             ACTION_STOP -> {
                 if (audioRecorder.isRecording) audioRecorder.stop()?.delete()
@@ -197,6 +208,12 @@ class CallMonitorService : Service() {
     }
 
     private suspend fun handleCallEnded() {
+        liveCaptureJob?.let {
+            it.cancel()
+            it.join()
+        }
+        liveCaptureJob = null
+
         if (tier3Delegated) {
             tier3Delegated = false
             startService(
@@ -246,14 +263,28 @@ class CallMonitorService : Service() {
             callSessionId = null,
         )
 
+        // CallLog DATE is when the call STARTED; OEM recorders finalize their
+        // file when it ENDS. Matching against the start time meant any call
+        // longer than the scanner's window (30s for the no-number fallback,
+        // 5min otherwise) never found its Tier 0 recording.
+        val callEndMillis = details.timestampMillis + details.durationSeconds * 1000L
+
         var uploaded = false
+        // A recording that exists but couldn't be uploaded right now
+        // (offline, server error) — kept and queued for retry instead of
+        // deleted, so the audio isn't lost to a bad connection at call-end.
+        var unsentRecording: File? = null
         if (directionAllowed && details.phoneNumber.isNotBlank()) {
             // Tier 0 first — best quality, least permission risk.
-            val tier0File = pollTier0(details.phoneNumber, details.timestampMillis)
+            val tier0File = pollTier0(details.phoneNumber, callEndMillis)
             if (tier0File != null) {
                 uploaded = runCatching { api.uploadRecording(event, tier0File) }.getOrDefault(false)
-                tier0File.delete()
-                if (uploaded) engineStats.recordTier0Success(System.currentTimeMillis())
+                if (uploaded) {
+                    tier0File.delete()
+                    engineStats.recordTier0Success(System.currentTimeMillis())
+                } else {
+                    unsentRecording = tier0File
+                }
             }
 
             // Tier 1/2 fallback — only if Tier 0 didn't produce a usable
@@ -281,24 +312,33 @@ class CallMonitorService : Service() {
                         "speakerphoneConfirmed=$capturedSpeakerphoneConfirmed " +
                         "fileBytes=${liveFile.length()} durationSecs=${details.durationSeconds} likelySilent=$likelySilent",
                 )
-                if (!uploaded && !likelySilent) {
+                if (!uploaded && unsentRecording == null && !likelySilent) {
                     uploaded = runCatching { api.uploadRecording(event, liveFile) }.getOrDefault(false)
                     if (uploaded) {
                         val now = System.currentTimeMillis()
                         if (capturedTier == 2) engineStats.recordTier2Success(now) else engineStats.recordTier1Success(now)
+                    } else {
+                        unsentRecording = liveFile
                     }
                 }
             }
         }
+        val keptPath = if (!uploaded && unsentRecording != null) {
+            PendingRecordingStore.keep(this, unsentRecording, details.hardwareId)
+        } else null
         liveFile?.let { if (it.exists()) it.delete() }
+        unsentRecording?.let { if (it.exists()) it.delete() }
 
         if (!uploaded) {
-            // Tier 4: queue metadata-only for the next batched bulk-sync —
-            // never block call-end processing on network state, and never
-            // call bulk-sync per-call (server rate-limits it to 1/user/10min).
-            dbHelper.enqueue(event)
+            // Tier 4: queue for the next sync pass (with the recording, if
+            // one is waiting to be retried) — never block call-end
+            // processing on network state, and never call bulk-sync per-call.
+            dbHelper.enqueue(event.copy(recordingPath = keptPath))
             CallSyncWorker.scheduleNow(applicationContext)
         }
+        // Lets CallLogReconciler skip this call instead of re-queuing it and
+        // re-uploading its audio a second time.
+        dbHelper.markHandled(details.hardwareId)
 
         updateNotification(statusTextFor(null))
     }

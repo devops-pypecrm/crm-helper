@@ -174,8 +174,8 @@ class BackendApi(private val authPrefs: NativeAuthPrefs) {
                 when {
                     response.code == 429 -> {
                         val body = response.body?.string().orEmpty()
-                        val retryAfter = runCatching { JSONObject(body).optInt("retryAfterSeconds", 600) }
-                            .getOrDefault(600)
+                        val retryAfter = runCatching { JSONObject(body).optInt("retryAfterSeconds", 30) }
+                            .getOrDefault(30)
                         BulkSyncResult.RateLimited(retryAfter)
                     }
                     response.isSuccessful -> {

@@ -46,10 +46,18 @@ class CallLogReconcilePrefs(context: Context) {
      */
     fun resetToStartOfToday() {
         lastReconciledAtMillis = startOfTodayMillis()
+        forceRecheckPending = true
     }
+
+    /** Set by [resetToStartOfToday] so that one reconcile pass also
+     * re-sends calls the live path already handled (normally skipped). */
+    var forceRecheckPending: Boolean
+        get() = prefs.getBoolean(KEY_FORCE_RECHECK, false)
+        set(value) = prefs.edit().putBoolean(KEY_FORCE_RECHECK, value).apply()
 
     companion object {
         private const val PREFS_NAME = "call_recording_engine_reconcile"
         private const val KEY_LAST_RECONCILED = "last_reconciled_at_millis"
+        private const val KEY_FORCE_RECHECK = "force_recheck_pending"
     }
 }

@@ -17,6 +17,7 @@ import com.pypecrm.call_recording_engine.data.CallStatePrefs
 import com.pypecrm.call_recording_engine.data.EngineStats
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
 import com.pypecrm.call_recording_engine.data.PendingCallEvent
+import com.pypecrm.call_recording_engine.data.PendingRecordingStore
 import com.pypecrm.call_recording_engine.net.BackendApi
 import com.pypecrm.call_recording_engine.recorder.ProjectionAudioRecorder
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
@@ -138,18 +139,26 @@ class ProjectionCaptureService : Service() {
         )
 
         var uploaded = false
+        var keptPath: String? = null
         if (directionAllowed && file != null &&
             !ProjectionAudioRecorder.isLikelySilent(file, details.durationSeconds)
         ) {
             uploaded = runCatching { api.uploadRecording(event, file) }.getOrDefault(false)
-            if (uploaded) engineStats.recordTier3Success(System.currentTimeMillis())
+            if (uploaded) {
+                engineStats.recordTier3Success(System.currentTimeMillis())
+            } else {
+                // Same as CallMonitorService: keep the audio for a retry
+                // instead of deleting it on a failed upload.
+                keptPath = PendingRecordingStore.keep(this, file, details.hardwareId)
+            }
         }
         file?.let { if (it.exists()) it.delete() }
 
         if (!uploaded) {
-            dbHelper.enqueue(event)
+            dbHelper.enqueue(event.copy(recordingPath = keptPath))
             CallSyncWorker.scheduleNow(applicationContext)
         }
+        dbHelper.markHandled(details.hardwareId)
         stopSelfSafely()
     }
 

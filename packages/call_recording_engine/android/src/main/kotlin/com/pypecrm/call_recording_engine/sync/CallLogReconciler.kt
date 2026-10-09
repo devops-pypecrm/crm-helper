@@ -11,6 +11,7 @@ import com.pypecrm.call_recording_engine.data.CallLogReconcilePrefs
 import com.pypecrm.call_recording_engine.data.CallSettingsCache
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
 import com.pypecrm.call_recording_engine.data.PendingCallEvent
+import com.pypecrm.call_recording_engine.data.PendingRecordingStore
 import com.pypecrm.call_recording_engine.debug.EngineDebugLog
 import com.pypecrm.call_recording_engine.net.BackendApi
 import com.pypecrm.call_recording_engine.scanner.NativeRecordingScanner
@@ -67,6 +68,7 @@ object CallLogReconciler {
     // once it's had a few seconds to settle, not something to keep
     // waiting on forever.
     private const val RACE_WINDOW_MS = 15_000L
+    private const val HANDLED_RETENTION_MS = 3L * 24 * 60 * 60 * 1000
 
     /** Returns how many previously-unseen calls were recovered (audio or
      * metadata-only combined). */
@@ -80,6 +82,10 @@ object CallLogReconciler {
 
         val prefs = CallLogReconcilePrefs(context)
         val since = prefs.lastReconciledAtMillis
+        // A user-triggered "Re-check Today's Calls" re-sends metadata for
+        // calls the live path already handled too (the backend heals them in
+        // place); a normal pass skips them.
+        val forceRecheck = prefs.forceRecheckPending
         val dbHelper = CallEventDbHelper.getInstance(context)
         val api = BackendApi(authPrefs)
         val settingsCache = CallSettingsCache(context)
@@ -121,6 +127,14 @@ object CallLogReconciler {
                         continue
                     }
                     val rowId = cursor.getLong(idCol)
+                    // Already processed by the live path (uploaded or queued) —
+                    // re-queuing it would re-send it and, worse, scan for and
+                    // re-upload its Tier 0 audio a second time.
+                    val alreadyHandled = dbHelper.isHandled(rowId.toString())
+                    if (alreadyHandled && !forceRecheck) {
+                        if (date > newestSeen) newestSeen = date
+                        continue
+                    }
                     val typeInt = cursor.getInt(typeCol)
                     val typeStr = typeToString(typeInt)
                     val durationSecs = cursor.getInt(durationCol)
@@ -171,27 +185,35 @@ object CallLogReconciler {
                         "INCOMING" -> settingsCache.isDirectionAllowed(false)
                         else -> settingsCache.isDirectionAllowed(true) && settingsCache.isDirectionAllowed(false)
                     }
-                    val canAttemptTier0 = durationSecs > 0 && phoneNumber.isNotBlank() && directionAllowed
+                    val canAttemptTier0 = !alreadyHandled && durationSecs > 0 && phoneNumber.isNotBlank() && directionAllowed
 
                     var recoveredAudio = false
+                    var keptPath: String? = null
                     if (canAttemptTier0) {
-                        val file = NativeRecordingScanner.scanOnce(context, phoneNumber, date)
+                        // Match against call END (DATE is the start) — see
+                        // CallMonitorService.handleCallEnded.
+                        val callEndMillis = date + durationSecs * 1000L
+                        val file = NativeRecordingScanner.scanOnce(context, phoneNumber, callEndMillis)
                         if (file != null) {
                             recoveredAudio = try {
                                 api.uploadRecording(event, file)
                             } catch (e: Exception) {
                                 Log.w(TAG, "Tier 0 recovery upload failed for reconciled call", e)
                                 false
-                            } finally {
-                                file.delete()
                             }
-                            if (recoveredAudio) tier0Recovered++
+                            if (recoveredAudio) {
+                                tier0Recovered++
+                            } else {
+                                keptPath = PendingRecordingStore.keep(context, file, event.hardwareId)
+                            }
+                            if (file.exists()) file.delete()
                         }
                     }
 
                     if (!recoveredAudio) {
-                        dbHelper.enqueue(event)
+                        dbHelper.enqueue(event.copy(recordingPath = keptPath))
                     }
+                    dbHelper.markHandled(event.hardwareId)
                     queued++
                     if (date > newestSeen) newestSeen = date
                 }
@@ -207,6 +229,10 @@ object CallLogReconciler {
         if (newestSeen > since) {
             prefs.lastReconciledAtMillis = newestSeen
         }
+        if (forceRecheck) prefs.forceRecheckPending = false
+        // Handled markers only need to cover the look-back window (today,
+        // plus margin for a re-check right after midnight).
+        dbHelper.pruneHandledOlderThan(now - HANDLED_RETENTION_MS)
         if (queued > 0) {
             Log.i(TAG, "Reconciled $queued call(s) not previously captured ($tier0Recovered with recovered audio)")
             EngineDebugLog(context).append(
