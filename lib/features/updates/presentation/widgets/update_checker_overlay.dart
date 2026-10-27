@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/navigation/app_page_route.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/app_release.dart';
 import '../../providers/app_update_provider.dart';
@@ -63,7 +64,7 @@ class UpdateCheckerOverlay extends ConsumerWidget {
             onPressed: () {
               Navigator.of(dialogContext).pop();
               navigatorKey.currentState?.push(
-                MaterialPageRoute<void>(builder: (_) => const UpdatesScreen()),
+                AppPageRoute<void>(builder: (_) => const UpdatesScreen()),
               );
             },
             child: const Text('Update'),

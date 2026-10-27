@@ -1,5 +1,5 @@
 name: dad_call_recorder
-description: "PypeCRM Helper — sideloaded field companion app for call recording and WhatsApp reply sync."
+description: "PypeCRM Helper — sideloaded field companion app for call recording and call-log sync."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.5.19+33
+version: 1.5.24+38
 
 environment:
   sdk: ^3.12.2
@@ -64,6 +64,12 @@ dependencies:
     path: packages/call_recording_engine
   path_provider: ^2.1.6
   package_info_plus: ^9.0.1
+
+  # Premium visual overhaul (Part D): Plus Jakarta Sans text theme + terse,
+  # consistent entrance/press animations instead of hand-rolled
+  # AnimationControllers on every screen.
+  google_fonts: ^6.2.1
+  flutter_animate: ^4.5.2
 
 dev_dependencies:
   flutter_test:

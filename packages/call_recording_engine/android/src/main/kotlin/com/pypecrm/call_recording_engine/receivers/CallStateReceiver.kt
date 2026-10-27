@@ -76,11 +76,9 @@ class CallStateReceiver : BroadcastReceiver() {
 
         when (callState) {
             TelephonyManager.CALL_STATE_RINGING -> {
-                // Ringing never starts Tier 1 recording — there's no call
-                // audio yet, only a ring. RINGING is also the one state
-                // that only ever happens for an incoming call, which is
-                // what makes [CallStatePrefs.likelyOutgoing] a reliable
-                // signal below.
+                // RINGING is the one state that only ever happens for an
+                // incoming call, which is what makes
+                // [CallStatePrefs.likelyOutgoing] a reliable signal below.
                 if (callStatePrefs.isCallActive) return
                 callStatePrefs.isCallActive = true
                 callStatePrefs.callStartTimeMillis = System.currentTimeMillis()
@@ -94,9 +92,13 @@ class CallStateReceiver : BroadcastReceiver() {
                 startMonitorService(context, CallMonitorService.ACTION_CALL_RINGING)
             }
             TelephonyManager.CALL_STATE_OFFHOOK -> {
-                // Real call audio starts flowing now — this is what starts
-                // Tier 1 recording. Reachable either from RINGING (answered
-                // incoming call) or directly from IDLE (outgoing call).
+                // Real call audio starts flowing now. Reachable either from
+                // RINGING (answered incoming call) or directly from IDLE
+                // (outgoing call). Tracked purely so handleCallEnded() has
+                // an accurate likelyOutgoing/reachedOffhookThisCall hint for
+                // CallLogLookup — nothing needs to happen service-side at
+                // this point since neither Tier 0 nor Tier 4 start until
+                // call-end.
                 if (!callStatePrefs.isCallActive) {
                     callStatePrefs.isCallActive = true
                     callStatePrefs.callStartTimeMillis = System.currentTimeMillis()
@@ -114,7 +116,6 @@ class CallStateReceiver : BroadcastReceiver() {
                     "CALL_ACTIVE",
                     if (callStatePrefs.likelyOutgoing) "outgoing call connected" else "incoming call answered",
                 )
-                startMonitorService(context, CallMonitorService.ACTION_CALL_ACTIVE)
             }
             TelephonyManager.CALL_STATE_IDLE -> {
                 if (!callStatePrefs.isCallActive) return

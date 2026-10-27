@@ -5,25 +5,17 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.projection.MediaProjectionManager
 import android.os.Build
-import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.pypecrm.call_recording_engine.accessibility.CallRecordingAccessibilityService
 import com.pypecrm.call_recording_engine.data.CallLogReconcilePrefs
 import com.pypecrm.call_recording_engine.data.EngineStats
-import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
 import com.pypecrm.call_recording_engine.debug.EngineDebugLog
 import com.pypecrm.call_recording_engine.service.CallMonitorService
 import com.pypecrm.call_recording_engine.sync.CallSyncRunner
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
 import com.pypecrm.call_recording_engine.sync.SyncOutcome
-import com.pypecrm.call_recording_engine.sync.WhatsAppSyncWorker
-import com.pypecrm.call_recording_engine.util.AccessibilityUtils
-import com.pypecrm.call_recording_engine.util.AutoStartHelper
-import com.pypecrm.call_recording_engine.util.NotificationListenerUtils
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -42,12 +34,12 @@ import kotlinx.coroutines.withContext
 
 /**
  * Dart<->native bridge for every tier. All the actual call-monitoring logic
- * lives in CallStateReceiver/CallMonitorService/ProjectionCaptureService/
- * CallSyncWorker and keeps running whether or not Flutter's engine is
- * alive — this plugin only toggles that machinery on/off, requests runtime
- * permissions/consent, and reports status back to Dart when the UI is
- * open. See Dad-mobile/CALL_RECORDING_PLAN.md for the full architecture
- * this implements.
+ * lives in CallStateReceiver/CallMonitorService/CallSyncWorker and keeps
+ * running whether or not Flutter's engine is alive — this plugin only
+ * toggles that machinery on/off, requests runtime permissions, and reports
+ * status back to Dart when the UI is open. See
+ * Dad-mobile/CALL_RECORDING_PLAN.md for the full architecture this
+ * implements.
  *
  * Runtime permissions are requested here natively (ActivityCompat), not via
  * a generic permission-request pub package — READ_CALL_LOG in particular
@@ -67,7 +59,6 @@ class CallRecordingEnginePlugin :
     private lateinit var appContext: Context
     private var activity: Activity? = null
     private var pendingPermissionResult: Result? = null
-    private var pendingProjectionResult: Result? = null
 
     // Backs the manual-sync method calls below — launched work outlives a
     // single onMethodCall invocation but must still be cancelled if the
@@ -89,12 +80,6 @@ class CallRecordingEnginePlugin :
                 EngineStats(appContext).monitoringEnabled = true
                 startService(CallMonitorService.ACTION_ENSURE_RUNNING)
                 CallSyncWorker.schedulePeriodic(appContext)
-                // Notification access (if already granted) works independently
-                // of the accessibility/foreground-service permission set this
-                // action gates, but scheduling its periodic safety-net sync
-                // here too costs nothing when the listener is never enabled —
-                // WhatsAppSyncWorker just finds an empty queue and no-ops.
-                WhatsAppSyncWorker.schedulePeriodic(appContext)
                 result.success(null)
             }
             "stopMonitoring" -> {
@@ -109,12 +94,7 @@ class CallRecordingEnginePlugin :
                         "monitoringEnabled" to stats.monitoringEnabled,
                         "lastSyncedAtMillis" to stats.lastSyncedAtMillis,
                         "tier0SuccessCount" to stats.tier0SuccessCount,
-                        "tier1SuccessCount" to stats.tier1SuccessCount,
-                        "tier2SuccessCount" to stats.tier2SuccessCount,
-                        "tier3SuccessCount" to stats.tier3SuccessCount,
                         "tier4SuccessCount" to stats.tier4SuccessCount,
-                        "whatsAppSyncCount" to stats.whatsAppSyncCount,
-                        "lastWhatsAppSyncedAtMillis" to stats.lastWhatsAppSyncAtMillis,
                     )
                 )
             }
@@ -132,22 +112,6 @@ class CallRecordingEnginePlugin :
                 NativeAuthPrefs(appContext).clear()
                 result.success(null)
             }
-            "isIgnoringBatteryOptimizations" ->
-                result.success(AutoStartHelper.isIgnoringBatteryOptimizations(appContext))
-            "requestBatteryOptimizationExemption" ->
-                result.success(AutoStartHelper.requestIgnoreBatteryOptimizations(appContext))
-            "openAutoStartSettings" ->
-                result.success(AutoStartHelper.openAutoStartSettings(appContext))
-            "getManufacturer" -> result.success(android.os.Build.MANUFACTURER)
-            "isAccessibilityServiceEnabled" ->
-                result.success(AccessibilityUtils.isCallRecordingServiceEnabled(appContext))
-            "openAccessibilitySettings" -> result.success(openAccessibilitySettings())
-            "isWhatsAppListenerEnabled" ->
-                result.success(NotificationListenerUtils.isWhatsAppListenerEnabled(appContext))
-            "openNotificationListenerSettings" -> result.success(openNotificationListenerSettings())
-            "hasMediaProjectionToken" -> result.success(MediaProjectionTokenStore.hasToken())
-            "requestMediaProjectionPermission" -> requestMediaProjectionPermission(result)
-            "attemptEnableNativeCallRecording" -> attemptEnableNativeCallRecording(result)
             "syncCallLogsNow" -> {
                 // User-visible manual trigger for the same reconcile-then-upload
                 // pass CallSyncWorker already runs on its own (periodic tick, or
@@ -187,20 +151,15 @@ class CallRecordingEnginePlugin :
 
     /** The dangerous/runtime subset of the full permission set declared in
      * the host app's manifest (see
-     * Dad-call-recorder/android/app/src/main/AndroidManifest.xml) —
-     * MODIFY_AUDIO_SETTINGS and the FOREGROUND_SERVICE_* subtypes are
-     * normal permissions granted at install time, so they don't belong
-     * here, and neither does Tier 2's Accessibility Service or Tier 3's
-     * MediaProjection consent — both are granted through their own OS
-     * flows (system Settings, and a one-time consent dialog respectively),
-     * not the standard runtime-permission dialog. READ_MEDIA_AUDIO
-     * replaces READ_EXTERNAL_STORAGE on 33+, and POST_NOTIFICATIONS is
-     * only a runtime permission from 33+. */
+     * Dad-call-recorder/android/app/src/main/AndroidManifest.xml) — the
+     * FOREGROUND_SERVICE_* subtypes are normal permissions granted at
+     * install time, so they don't belong here. READ_MEDIA_AUDIO replaces
+     * READ_EXTERNAL_STORAGE on 33+, and POST_NOTIFICATIONS is only a
+     * runtime permission from 33+. */
     private fun requiredPermissions(): Array<String> {
         val permissions = mutableListOf(
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.RECORD_AUDIO,
         )
         permissions += if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             Manifest.permission.READ_MEDIA_AUDIO
@@ -244,68 +203,6 @@ class CallRecordingEnginePlugin :
         pendingPermissionResult?.success(checkPermissions())
         pendingPermissionResult = null
         return true
-    }
-
-    /** Opens system Settings > Accessibility so the user can enable
-     * CallRecordingAccessibilityService by hand — Android does not allow
-     * an app to enable its own accessibility service programmatically. */
-    private fun openAccessibilitySettings(): Boolean {
-        val currentActivity = activity ?: return try {
-            appContext.startActivity(
-                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-            true
-        } catch (e: Exception) {
-            false
-        }
-        return try {
-            currentActivity.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    /** Opens system Settings > Notification access, same one-way pattern as
-     * [openAccessibilitySettings] — Android does not allow an app to enable
-     * itself as a notification listener. */
-    private fun openNotificationListenerSettings(): Boolean {
-        val currentActivity = activity ?: return try {
-            appContext.startActivity(
-                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-            true
-        } catch (e: Exception) {
-            false
-        }
-        return try {
-            currentActivity.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    /** Launches the system's MediaProjection consent dialog. The result
-     * (captured in [onActivityResult]) is stored in
-     * [MediaProjectionTokenStore] for CallMonitorService/ProjectionCaptureService
-     * to use — this can only be requested from a foreground Activity, and
-     * only lasts for this process's lifetime (see the token store's doc
-     * comment on why). */
-    private fun requestMediaProjectionPermission(result: Result) {
-        val currentActivity = activity
-        if (currentActivity == null) {
-            result.error("no_activity", "No Activity attached to request MediaProjection from", null)
-            return
-        }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            result.success(false)
-            return
-        }
-        pendingProjectionResult = result
-        val manager =
-            currentActivity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        currentActivity.startActivityForResult(manager.createScreenCaptureIntent(), PROJECTION_REQUEST_CODE)
     }
 
     /** Runs the reconcile-then-upload pass inline and resolves [result]
@@ -364,28 +261,7 @@ class CallRecordingEnginePlugin :
         SyncOutcome.NotSignedIn -> mapOf("status" to "notSignedIn")
     }
 
-    /** Fire-and-forget — the automation runs for several seconds across
-     * multiple screen transitions, so its result is read back from
-     * [EngineDebugLog] (via getEngineDebugLog), not this call's return
-     * value. Requires the user to have already enabled the accessibility
-     * service (same prerequisite as Tier 2). */
-    private fun attemptEnableNativeCallRecording(result: Result) {
-        val service = CallRecordingAccessibilityService.instance
-        if (service == null) {
-            result.error("service_not_enabled", "Accessibility service is not currently enabled", null)
-            return
-        }
-        service.attemptSamsungAutoRecordSetup()
-        result.success(null)
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
-        if (requestCode != PROJECTION_REQUEST_CODE) return false
-        MediaProjectionTokenStore.store(resultCode, data)
-        pendingProjectionResult?.success(MediaProjectionTokenStore.hasToken())
-        pendingProjectionResult = null
-        return true
-    }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean = false
 
     /** Always startForegroundService — even for [CallMonitorService.ACTION_STOP]
      * — since Android 8+ restricts plain startService() from a background
@@ -422,6 +298,5 @@ class CallRecordingEnginePlugin :
 
     companion object {
         private const val PERMISSION_REQUEST_CODE = 4202
-        private const val PROJECTION_REQUEST_CODE = 4203
     }
 }

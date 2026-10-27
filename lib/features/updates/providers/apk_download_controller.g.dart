@@ -7,7 +7,7 @@ part of 'apk_download_controller.dart';
 // **************************************************************************
 
 String _$apkDownloadControllerHash() =>
-    r'7f5bf46114ebc5edc8d9e9a5499a8a2a142b0d59';
+    r'c393e329c8826b216e8a672c9158d02bfffa731e';
 
 /// Downloads the current .apk into this app's own cache dir and hands it to
 /// the system installer. Mirrors Dad-mobile's

@@ -58,80 +58,10 @@ class CallRecordingEngine {
   /// uploading calls under the previous user's identity.
   Future<void> clearAuthForNative() => _channel.invokeMethod('clearAuthForNative');
 
-  Future<bool> isIgnoringBatteryOptimizations() async =>
-      (await _channel.invokeMethod<bool>('isIgnoringBatteryOptimizations')) ?? false;
-
-  /// Opens the system's battery-optimization-exemption prompt for this app.
-  /// Returns false only if the settings screen itself couldn't be launched
-  /// — the user may still deny the request itself, which isn't observable
-  /// from here; re-check with [isIgnoringBatteryOptimizations] after the
-  /// user returns to the app.
-  Future<bool> requestBatteryOptimizationExemption() async =>
-      (await _channel.invokeMethod<bool>('requestBatteryOptimizationExemption')) ?? false;
-
-  /// Opens the manufacturer-specific auto-start/background-activity screen
-  /// (Xiaomi/Oppo/Vivo/Honor/Nokia/Asus) if one is detected, else falls
-  /// back to the generic battery-optimization prompt.
-  Future<bool> openAutoStartSettings() async =>
-      (await _channel.invokeMethod<bool>('openAutoStartSettings')) ?? false;
-
-  Future<String> getManufacturer() async =>
-      (await _channel.invokeMethod<String>('getManufacturer')) ?? 'unknown';
-
-  /// Tier 2: whether the user has enabled the call-recording Accessibility
-  /// Service in system Settings. Android doesn't let an app enable its own
-  /// accessibility service, so this is check-only — see
-  /// [openAccessibilitySettings] for the action half.
-  Future<bool> isAccessibilityServiceEnabled() async =>
-      (await _channel.invokeMethod<bool>('isAccessibilityServiceEnabled')) ?? false;
-
-  /// Opens system Settings > Accessibility. The user still has to find and
-  /// enable "PypeCRM Helper" by hand — there's no way to deep-link
-  /// straight to a specific service's toggle.
-  Future<bool> openAccessibilitySettings() async =>
-      (await _channel.invokeMethod<bool>('openAccessibilitySettings')) ?? false;
-
-  /// Whether the user has granted this app "Notification access" in system
-  /// Settings — required for [WhatsAppSyncListenerService] (native side) to
-  /// read WhatsApp notification content at all. Android doesn't let an app
-  /// grant this to itself — see [openNotificationListenerSettings] for the
-  /// action half.
-  Future<bool> isWhatsAppListenerEnabled() async =>
-      (await _channel.invokeMethod<bool>('isWhatsAppListenerEnabled')) ?? false;
-
-  /// Opens system Settings > Notification access. The user still has to
-  /// find and enable this app by hand — same limitation as
-  /// [openAccessibilitySettings].
-  Future<bool> openNotificationListenerSettings() async =>
-      (await _channel.invokeMethod<bool>('openNotificationListenerSettings')) ?? false;
-
-  /// Tier 3: whether a MediaProjection consent token is currently held.
-  /// This is lost whenever the app process dies — check it fresh each time
-  /// the status/onboarding screen opens rather than caching the result.
-  Future<bool> hasMediaProjectionToken() async =>
-      (await _channel.invokeMethod<bool>('hasMediaProjectionToken')) ?? false;
-
-  /// Launches the system's MediaProjection consent dialog (a
-  /// "this app can capture audio" style prompt) and returns whether a
-  /// usable token resulted. Requires a foreground Activity, and does
-  /// nothing below Android 10 (Tier 3 is API 29+ only).
-  Future<bool> requestMediaProjectionPermission() async =>
-      (await _channel.invokeMethod<bool>('requestMediaProjectionPermission')) ?? false;
-
-  /// Advanced/experimental: triggers a best-effort UI automation (via the
-  /// already-enabled accessibility service) that opens the phone's stock
-  /// dialer and tries to switch on its built-in auto-call-recording
-  /// setting — currently targets Samsung One UI only. Fire-and-forget; read
-  /// progress/outcome back from [getEngineDebugLog], not this call's return
-  /// value. Throws a PlatformException with code `service_not_enabled` if
-  /// the accessibility service isn't currently enabled.
-  Future<void> attemptEnableNativeCallRecording() =>
-      _channel.invokeMethod('attemptEnableNativeCallRecording');
-
-  /// Newest-first `{event, detail, timestampMillis}` list covering both
-  /// Tier 0 (native-recording scan) and the auto-enable automation above —
-  /// see `EngineDebugLog`'s doc comment on why this exists instead of
-  /// relying on logcat (several OEMs suppress third-party app logs there).
+  /// Newest-first `{event, detail, timestampMillis}` list covering Tier 0
+  /// (native-recording scan) — see `EngineDebugLog`'s doc comment on why
+  /// this exists instead of relying on logcat (several OEMs suppress
+  /// third-party app logs there).
   Future<List<Map<String, Object?>>> getEngineDebugLog() async {
     final raw = await _channel.invokeListMethod<Object?>('getEngineDebugLog');
     return (raw ?? const []).cast<Map<Object?, Object?>>().map((e) => e.cast<String, Object?>()).toList();
@@ -174,45 +104,26 @@ class EngineStatus {
     required this.monitoringEnabled,
     required this.lastSyncedAt,
     required this.tier0SuccessCount,
-    required this.tier1SuccessCount,
-    required this.tier2SuccessCount,
-    required this.tier3SuccessCount,
     required this.tier4SuccessCount,
-    required this.whatsAppSyncCount,
-    required this.lastWhatsAppSyncedAt,
   });
 
   factory EngineStatus.fromMap(Map<String, Object?> map) {
     final lastSyncedAtMillis = (map['lastSyncedAtMillis'] as num?)?.toInt() ?? 0;
-    final lastWhatsAppSyncedAtMillis = (map['lastWhatsAppSyncedAtMillis'] as num?)?.toInt() ?? 0;
     return EngineStatus(
       monitoringEnabled: map['monitoringEnabled'] as bool? ?? false,
       lastSyncedAt:
           lastSyncedAtMillis > 0 ? DateTime.fromMillisecondsSinceEpoch(lastSyncedAtMillis) : null,
       tier0SuccessCount: (map['tier0SuccessCount'] as num?)?.toInt() ?? 0,
-      tier1SuccessCount: (map['tier1SuccessCount'] as num?)?.toInt() ?? 0,
-      tier2SuccessCount: (map['tier2SuccessCount'] as num?)?.toInt() ?? 0,
-      tier3SuccessCount: (map['tier3SuccessCount'] as num?)?.toInt() ?? 0,
       tier4SuccessCount: (map['tier4SuccessCount'] as num?)?.toInt() ?? 0,
-      whatsAppSyncCount: (map['whatsAppSyncCount'] as num?)?.toInt() ?? 0,
-      lastWhatsAppSyncedAt: lastWhatsAppSyncedAtMillis > 0
-          ? DateTime.fromMillisecondsSinceEpoch(lastWhatsAppSyncedAtMillis)
-          : null,
     );
   }
 
   final bool monitoringEnabled;
   final DateTime? lastSyncedAt;
   final int tier0SuccessCount;
-  final int tier1SuccessCount;
-  final int tier2SuccessCount;
-  final int tier3SuccessCount;
   final int tier4SuccessCount;
-  final int whatsAppSyncCount;
-  final DateTime? lastWhatsAppSyncedAt;
 
-  int get totalSyncedCalls =>
-      tier0SuccessCount + tier1SuccessCount + tier2SuccessCount + tier3SuccessCount + tier4SuccessCount;
+  int get totalSyncedCalls => tier0SuccessCount + tier4SuccessCount;
 }
 
 enum ManualSyncStatus { success, rateLimited, failed, permissionMissing, notSignedIn, noConnection }

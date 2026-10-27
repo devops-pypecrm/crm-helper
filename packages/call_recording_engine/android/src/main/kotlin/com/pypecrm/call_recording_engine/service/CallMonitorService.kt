@@ -6,7 +6,6 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -16,18 +15,14 @@ import com.pypecrm.call_recording_engine.data.CallEventDbHelper
 import com.pypecrm.call_recording_engine.data.CallSettingsCache
 import com.pypecrm.call_recording_engine.data.CallStatePrefs
 import com.pypecrm.call_recording_engine.data.EngineStats
-import com.pypecrm.call_recording_engine.data.MediaProjectionTokenStore
 import com.pypecrm.call_recording_engine.data.NativeAuthPrefs
 import com.pypecrm.call_recording_engine.data.NativeRecordingCapabilityPrefs
 import com.pypecrm.call_recording_engine.data.PendingCallEvent
 import com.pypecrm.call_recording_engine.data.PendingRecordingStore
-import com.pypecrm.call_recording_engine.debug.EngineDebugLog
 import com.pypecrm.call_recording_engine.net.BackendApi
-import com.pypecrm.call_recording_engine.recorder.CallAudioRecorder
 import com.pypecrm.call_recording_engine.scanner.NativeRecordingScanner
 import com.pypecrm.call_recording_engine.sync.CallSyncWorker
 import com.pypecrm.call_recording_engine.util.CallLogLookup
-import com.pypecrm.call_recording_engine.util.DeviceCapabilities
 import com.pypecrm.call_recording_engine.util.PhoneNumberUtils
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -39,32 +34,28 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * The persistent foreground service backing Tiers 0, 1, 2, and 4 (Tier 3
- * lives in its own [ProjectionCaptureService] — see that class's doc
- * comment for why). Runs continuously once monitoring is enabled (not just
- * per-call) — a long-lived foreground notification is deliberately harder
- * for aggressive OEM battery managers (Xiaomi/Oppo/etc., see the plan's
- * Risks section) to kill than a service that starts and stops for every
- * call, mirroring the reference implementation's approach.
- * [CallStateReceiver] is what's always alive across reboots (via its
- * manifest registration); it hands off to this service on each call.
+ * The persistent foreground service backing Tiers 0 and 4. Runs
+ * continuously once monitoring is enabled (not just per-call) — a
+ * long-lived foreground notification is deliberately harder for aggressive
+ * OEM battery managers (Xiaomi/Oppo/etc.) to kill than a service that
+ * starts and stops for every call, mirroring the reference implementation's
+ * approach. [CallStateReceiver] is what's always alive across reboots (via
+ * its manifest registration); it hands off to this service on each call.
  *
- * Fallback order at call-end is Tier 0 (OEM native-recorder file, best
- * quality) → Tier 1/2 (our own MediaRecorder capture, started live at
- * [ACTION_CALL_ACTIVE] since it can't be done retroactively) → Tier 3 (only
- * if 1/2 couldn't even start) → Tier 4 (metadata only). See
- * Dad-mobile/CALL_RECORDING_PLAN.md.
+ * Only action taken is at call-end: Tier 0 (OEM native-recorder file, best
+ * quality, polled for a short window after the call) → Tier 4 (metadata
+ * only, always). See Dad-mobile/CALL_RECORDING_PLAN.md.
  */
 class CallMonitorService : Service() {
 
     // SupervisorJob (not a plain Job) + a CoroutineExceptionHandler: without
-    // both, an uncaught exception anywhere in startLiveCaptureIfAllowed()/
-    // handleCallEnded() - both run on every single call - crashes the whole
-    // app process instead of just failing that one step. Confirmed as a real
-    // path: NativeRecordingScanner's Tier 0 fallback lookup had exactly this
-    // kind of unguarded throw (see its doc comment), reported as "PypeCRM
-    // Helper keeps stopping" during calls. This is the safety net for
-    // whatever the next unguarded throw turns out to be.
+    // both, an uncaught exception anywhere in handleCallEnded() - which runs
+    // on every single call - crashes the whole app process instead of just
+    // failing that one step. Confirmed as a real path: NativeRecordingScanner's
+    // Tier 0 fallback lookup had exactly this kind of unguarded throw (see
+    // its doc comment), reported as "PypeCRM Helper keeps stopping" during
+    // calls. This is the safety net for whatever the next unguarded throw
+    // turns out to be.
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
         Log.e(TAG, "Uncaught exception in CallMonitorService coroutine - call handling continues, this step failed", throwable)
     }
@@ -76,21 +67,6 @@ class CallMonitorService : Service() {
     private lateinit var dbHelper: CallEventDbHelper
     private lateinit var settingsCache: CallSettingsCache
     private lateinit var api: BackendApi
-    private lateinit var audioRecorder: CallAudioRecorder
-
-    /** True when [startLiveCaptureIfAllowed] handed this call off to
-     * [ProjectionCaptureService] (Tier 3) because Tiers 1/2 couldn't even
-     * start — that service owns finishing the call end-to-end (CallLog
-     * lookup, upload-or-queue) in that case, so [handleCallEnded] must not
-     * also process it (would double-queue/double-upload). */
-    @Volatile private var tier3Delegated = false
-
-    /** The in-flight [startLiveCaptureIfAllowed] job. It can still be
-     * running (settings fetch over the network, the outgoing-call grace
-     * delay) when a short call ends — [handleCallEnded] must cancel and
-     * wait for it first, otherwise capture could start AFTER the call ended
-     * and keep the microphone recording until the next call. */
-    @Volatile private var liveCaptureJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -100,7 +76,6 @@ class CallMonitorService : Service() {
         dbHelper = CallEventDbHelper.getInstance(this)
         settingsCache = CallSettingsCache(this)
         api = BackendApi(NativeAuthPrefs(this))
-        audioRecorder = CallAudioRecorder(this)
         createNotificationChannel()
     }
 
@@ -115,20 +90,14 @@ class CallMonitorService : Service() {
         // this app deliberately has neither of (it only monitors calls, it
         // doesn't manage them) — that mismatch crashed this exact call
         // (SecurityException) on every single call-end, before any
-        // call-end processing ever ran. `dataSync` (idle/general) and
-        // `microphone` (only while actually recording) need no such role.
+        // call-end processing ever ran. `dataSync` needs no such role.
         ServiceCompat.startForeground(
-            this, NOTIFICATION_ID, buildNotification(statusTextFor(intent?.action)), foregroundTypeFor(intent?.action)
+            this, NOTIFICATION_ID, buildNotification(statusTextFor(intent?.action)), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         )
 
         when (intent?.action) {
-            ACTION_CALL_ACTIVE -> {
-                liveCaptureJob?.cancel()
-                liveCaptureJob = jobScope.launch { startLiveCaptureIfAllowed() }
-            }
             ACTION_CALL_ENDED -> jobScope.launch { handleCallEnded() }
             ACTION_STOP -> {
-                if (audioRecorder.isRecording) audioRecorder.stop()?.delete()
                 stopForeground(true)
                 stopSelf()
                 return START_NOT_STICKY
@@ -138,93 +107,7 @@ class CallMonitorService : Service() {
         return START_STICKY
     }
 
-    /** Live capture must start now — unlike Tier 0/4 it can't be
-     * reconstructed after the fact. Gated on [CallSettingsCache] using the
-     * best-effort live direction guess ([CallStatePrefs.likelyOutgoing]),
-     * since the CallLog's authoritative direction isn't available until
-     * the call ends — recording (not just uploading) is skipped outright
-     * when the org has this direction's auto-record setting off, per the
-     * plan's consent-law non-negotiable. */
-    private suspend fun startLiveCaptureIfAllowed() {
-        settingsCache.refreshIfStale(api)
-        if (!settingsCache.isDirectionAllowed(callStatePrefs.likelyOutgoing)) {
-            Log.d(TAG, "Live recording skipped — org has recording off for this direction.")
-            return
-        }
-        if (DeviceCapabilities.isLowRam(this)) {
-            // Tiers 1/2/3 all force MODE_IN_COMMUNICATION/speakerphone and
-            // hold an in-call audio source (MediaRecorder or
-            // MediaProjection) for the whole call — real contention for the
-            // same audio HAL path the telephony stack itself needs, for the
-            // full call duration. Reported to make calls fail/lag to the
-            // point of being unusable on 2GB-class devices (realme C11
-            // 2021 Go Edition and similar). Skipping straight to Tier 0
-            // (native OEM recorder file, polled at call-end — no live audio
-            // interference at all) plus Tier 4 (metadata-only) keeps call
-            // fetching/sync fully intact; it only gives up our own live
-            // capture on hardware too weak to safely run it alongside an
-            // active call.
-            Log.d(TAG, "Low-RAM device — skipping live capture (Tiers 1/2/3), relying on Tier 0/4 only.")
-            return
-        }
-        if (nativeRecordingCapabilityPrefs.preferNativeOnly) {
-            // This device has proven its OEM dialer already writes a real
-            // Tier 0 recording (most non-stock-Android OEMs — MIUI/HyperOS,
-            // ColorOS/Realme UI, FuntouchOS, or Samsung once
-            // SamsungAutoRecordAutomation has switched it on). No point
-            // running our own live capture — and its audio-HAL contention
-            // risk — when Tier 0 alone already gets the recording with zero
-            // interference with the call itself. Self-heals back to live
-            // capture below if Tier 0 goes cold (see
-            // NativeRecordingCapabilityPrefs.preferNativeOnly's doc comment).
-            Log.d(TAG, "Tier 0 has proven reliable on this device — skipping live capture (Tiers 1/2/3).")
-            return
-        }
-        if (callStatePrefs.likelyOutgoing) {
-            // EXTRA_STATE_OFFHOOK fires the instant the user dials an
-            // outgoing call — while the carrier is still setting up the
-            // call, well before it's actually connected (unlike an
-            // incoming call, where OFFHOOK only fires once the user has
-            // already answered). Forcing MODE_IN_COMMUNICATION/speakerphone
-            // and grabbing the VOICE_COMMUNICATION audio source this early
-            // races the platform's own audio HAL for the same audio path
-            // call setup needs — confirmed as the cause of "can't place a
-            // call" reports on weaker audio HALs. A short grace period lets
-            // call setup claim the audio path first; the cost is losing the
-            // first ~1.5s of recorded audio, not the call itself.
-            delay(OUTGOING_CALL_SETUP_GRACE_MS)
-        }
-        if (audioRecorder.start()) return // Tier 1 (VOICE_COMMUNICATION/MIC) or Tier 2 (VOICE_RECOGNITION)
-
-        Log.w(TAG, "Tiers 1/2 failed to start at all — trying Tier 3 if a MediaProjection token exists.")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && MediaProjectionTokenStore.hasToken()) {
-            tier3Delegated = true
-            startService(
-                Intent(this, ProjectionCaptureService::class.java).apply {
-                    action = ProjectionCaptureService.ACTION_START
-                }
-            )
-        }
-    }
-
     private suspend fun handleCallEnded() {
-        liveCaptureJob?.let {
-            it.cancel()
-            it.join()
-        }
-        liveCaptureJob = null
-
-        if (tier3Delegated) {
-            tier3Delegated = false
-            startService(
-                Intent(this, ProjectionCaptureService::class.java).apply {
-                    action = ProjectionCaptureService.ACTION_STOP
-                }
-            )
-            updateNotification(statusTextFor(null))
-            return
-        }
-
         val startedAt = callStatePrefs.callStartTimeMillis
         val expectedNumberSuffix = PhoneNumberUtils.last10Digits(callStatePrefs.expectedNumber)
         callStatePrefs.expectedNumber = null // consumed — don't leak into the next call
@@ -234,18 +117,12 @@ class CallMonitorService : Service() {
         // rang and was never answered) it could still hold a stale value
         // left over from an earlier call.
         val expectedType = if (callStatePrefs.reachedOffhookThisCall && callStatePrefs.likelyOutgoing) "OUTGOING" else null
-        // Read BEFORE stop() — all reset to null/false there.
-        val capturedTier = audioRecorder.activeTier
-        val capturedAudioSource = audioRecorder.activeAudioSource
-        val capturedSpeakerphoneConfirmed = audioRecorder.speakerphoneForceConfirmed
-        val liveFile = if (audioRecorder.isRecording) audioRecorder.stop() else null
 
         val details = CallLogLookup.awaitLatestCallDetails(
             this, startedAt, expectedNumberSuffix.ifEmpty { null }, expectedType
         )
         if (details == null) {
             Log.w(TAG, "Call ended but no CallLog entry appeared — nothing to sync.")
-            liveFile?.delete()
             updateNotification(statusTextFor(null))
             return
         }
@@ -275,7 +152,8 @@ class CallMonitorService : Service() {
         // deleted, so the audio isn't lost to a bad connection at call-end.
         var unsentRecording: File? = null
         if (directionAllowed && details.phoneNumber.isNotBlank()) {
-            // Tier 0 first — best quality, least permission risk.
+            // Tier 0 — best quality, least permission risk, the only
+            // recording source this app has.
             val tier0File = pollTier0(details.phoneNumber, callEndMillis)
             if (tier0File != null) {
                 uploaded = runCatching { api.uploadRecording(event, tier0File) }.getOrDefault(false)
@@ -286,47 +164,10 @@ class CallMonitorService : Service() {
                     unsentRecording = tier0File
                 }
             }
-
-            // Tier 1/2 fallback — only if Tier 0 didn't produce a usable
-            // upload, and only if the file actually looks like real audio
-            // (see CallAudioRecorder.isLikelySilent — the "succeeded but
-            // silent" guard the plan calls out for these tiers).
-            if (liveFile != null) {
-                val likelySilent = CallAudioRecorder.isLikelySilent(liveFile, details.durationSeconds)
-                // Tier 1/2's only visibility outside a live adb session — no
-                // exception here means MediaRecorder "succeeded", but that
-                // says nothing about whether it actually captured the
-                // far-end voice. speakerphoneConfirmed=false is the most
-                // likely explanation for a normal-looking, non-"silent"
-                // (by byte-rate) file that still turns out to have no
-                // audible far-end voice: a non-default-dialer app's
-                // speakerphone force can be silently ignored by the
-                // platform's Telecom-managed audio routing on some Android
-                // builds — MediaRecorder then just captures ambient
-                // room/mic noise instead of the call, which still produces
-                // a normal bitrate and so isn't caught by the byte-rate
-                // check at all.
-                EngineDebugLog(this).append(
-                    "LIVE_CAPTURE_ATTEMPT",
-                    "tier=$capturedTier source=${audioSourceName(capturedAudioSource)} " +
-                        "speakerphoneConfirmed=$capturedSpeakerphoneConfirmed " +
-                        "fileBytes=${liveFile.length()} durationSecs=${details.durationSeconds} likelySilent=$likelySilent",
-                )
-                if (!uploaded && unsentRecording == null && !likelySilent) {
-                    uploaded = runCatching { api.uploadRecording(event, liveFile) }.getOrDefault(false)
-                    if (uploaded) {
-                        val now = System.currentTimeMillis()
-                        if (capturedTier == 2) engineStats.recordTier2Success(now) else engineStats.recordTier1Success(now)
-                    } else {
-                        unsentRecording = liveFile
-                    }
-                }
-            }
         }
         val keptPath = if (!uploaded && unsentRecording != null) {
             PendingRecordingStore.keep(this, unsentRecording, details.hardwareId)
         } else null
-        liveFile?.let { if (it.exists()) it.delete() }
         unsentRecording?.let { if (it.exists()) it.delete() }
 
         if (!uploaded) {
@@ -341,14 +182,6 @@ class CallMonitorService : Service() {
         dbHelper.markHandled(details.hardwareId)
 
         updateNotification(statusTextFor(null))
-    }
-
-    private fun audioSourceName(source: Int?): String = when (source) {
-        MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "VOICE_COMMUNICATION"
-        MediaRecorder.AudioSource.VOICE_RECOGNITION -> "VOICE_RECOGNITION"
-        MediaRecorder.AudioSource.MIC -> "MIC"
-        null -> "none"
-        else -> "unknown($source)"
     }
 
     private suspend fun pollTier0(phoneNumber: String, callEndMillis: Long): File? {
@@ -390,18 +223,8 @@ class CallMonitorService : Service() {
 
     private fun statusTextFor(action: String?): String = when (action) {
         ACTION_CALL_RINGING -> "Call ringing…"
-        ACTION_CALL_ACTIVE -> "Call in progress…"
         ACTION_STOP -> "Stopping…"
         else -> "Waiting for calls…"
-    }
-
-    /** `microphone` only while a live recording session might genuinely be
-     * running (started at ACTION_CALL_ACTIVE, torn down at the top of
-     * handleCallEnded) — `dataSync` otherwise. See the doc comment on
-     * [onStartCommand] for why `phoneCall` is deliberately not used here. */
-    private fun foregroundTypeFor(action: String?): Int = when (action) {
-        ACTION_CALL_ACTIVE, ACTION_CALL_ENDED -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
     }
 
     private fun updateNotification(text: String) {
@@ -427,7 +250,6 @@ class CallMonitorService : Service() {
     }
 
     override fun onDestroy() {
-        if (audioRecorder.isRecording) audioRecorder.stop()?.delete()
         jobScope.coroutineContext[Job]?.cancel()
         super.onDestroy()
     }
@@ -439,19 +261,14 @@ class CallMonitorService : Service() {
         private const val CHANNEL_ID = "call_monitor_channel"
         private const val NOTIFICATION_ID = 4201
 
-        // ~2s apart for ~16-18s total — the plan calls for a ~15-20s window
-        // since several OEMs finalize the recording file a few seconds
-        // after call end (the exact gap NativeRecordingScanner's old
-        // single-query version used to miss).
+        // ~2s apart for ~16-18s total — several OEMs finalize the recording
+        // file a few seconds after call end (the exact gap
+        // NativeRecordingScanner's old single-query version used to miss).
         private const val TIER0_POLL_ATTEMPTS = 9
         private const val TIER0_POLL_INTERVAL_MS = 2000L
 
-        // See startLiveCaptureIfAllowed's doc comment on the OFFHOOK race.
-        private const val OUTGOING_CALL_SETUP_GRACE_MS = 1500L
-
         const val ACTION_ENSURE_RUNNING = "com.pypecrm.call_recording_engine.action.ENSURE_RUNNING"
         const val ACTION_CALL_RINGING = "com.pypecrm.call_recording_engine.action.CALL_RINGING"
-        const val ACTION_CALL_ACTIVE = "com.pypecrm.call_recording_engine.action.CALL_ACTIVE"
         const val ACTION_CALL_ENDED = "com.pypecrm.call_recording_engine.action.CALL_ENDED"
         const val ACTION_STOP = "com.pypecrm.call_recording_engine.action.STOP"
     }

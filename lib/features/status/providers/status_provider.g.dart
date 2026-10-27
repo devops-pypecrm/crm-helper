@@ -31,7 +31,7 @@ final enginePermissionsProvider =
 // ignore: unused_element
 typedef EnginePermissionsRef = AutoDisposeFutureProviderRef<Map<String, bool>>;
 String _$engineStatusControllerHash() =>
-    r'be41cf1c625fec87dbf9acce9252263dd164f13e';
+    r'1f8eb5306ac9e22c77b4dbbc8654593d3156e070';
 
 /// Polls the native engine's status every few seconds while the status
 /// screen is open — there's no push channel from native to Dart in Phase 1

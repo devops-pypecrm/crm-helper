@@ -6,7 +6,7 @@ part of 'session_provider.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$sessionControllerHash() => r'897c77f90504369ec1647d060bc5b78c14f25a22';
+String _$sessionControllerHash() => r'6ac236320ab008b26bc070ddab4f40e8a9928d34';
 
 /// Single source of truth for "who is logged in" — the login screen, the
 /// status screen, and the Dio interceptor's 401 handler all watch this.

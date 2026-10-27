@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/premium_button.dart';
 import '../../providers/session_provider.dart';
 
 /// Standalone login screen — independent from Dad-mobile's session (see
@@ -61,31 +64,42 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.mic_none_outlined, size: 64),
-                  const SizedBox(height: 8),
-                  Text('PypeCRM Helper', style: Theme.of(context).textTheme.headlineSmall),
-                  const SizedBox(height: 4),
+                  Container(
+                    width: 84,
+                    height: 84,
+                    decoration: BoxDecoration(
+                      color: kBrandSurface,
+                      borderRadius: BorderRadius.circular(28),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.mic_none_outlined, size: 40, color: kBrandColor),
+                  ).animate().fadeIn(duration: 400.ms).scale(begin: const Offset(0.9, 0.9)),
+                  const SizedBox(height: 20),
+                  Text(
+                    'PypeCRM Helper',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+                  ).animate().fadeIn(delay: 100.ms, duration: 400.ms).slideY(begin: 0.15),
+                  const SizedBox(height: 6),
                   Text(
                     'Sign in with your PypeCRM account',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 32),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54),
+                  ).animate().fadeIn(delay: 150.ms, duration: 400.ms).slideY(begin: 0.15),
+                  const SizedBox(height: 36),
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     autofillHints: const [AutofillHints.username],
-                    decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: 'Email'),
                     validator: (value) =>
                         (value == null || value.trim().isEmpty) ? 'Email is required' : null,
-                  ),
-                  const SizedBox(height: 16),
+                  ).animate().fadeIn(delay: 200.ms, duration: 400.ms).slideY(begin: 0.15),
+                  const SizedBox(height: 14),
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
                     autofillHints: const [AutofillHints.password],
                     decoration: InputDecoration(
                       labelText: 'Password',
-                      border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
                         icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
                         onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
@@ -94,21 +108,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     validator: (value) =>
                         (value == null || value.isEmpty) ? 'Password is required' : null,
                     onFieldSubmitted: (_) => isLoading ? null : _submit(),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: isLoading ? null : _submit,
-                      child: isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Sign in'),
-                    ),
-                  ),
+                  ).animate().fadeIn(delay: 250.ms, duration: 400.ms).slideY(begin: 0.15),
+                  const SizedBox(height: 28),
+                  PrimaryButton(
+                    label: 'Sign in',
+                    loading: isLoading,
+                    onPressed: isLoading ? null : _submit,
+                  ).animate().fadeIn(delay: 300.ms, duration: 400.ms).slideY(begin: 0.15),
                 ],
               ),
             ),

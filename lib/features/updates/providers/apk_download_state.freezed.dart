@@ -20,25 +20,46 @@ mixin _$ApkDownloadState {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function() idle,
-    required TResult Function(double progress) downloading,
+    required TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )
+    downloading,
+    required TResult Function(String filePath) downloaded,
     required TResult Function(String filePath) permissionNeeded,
-    required TResult Function(String filePath) installLaunched,
+    required TResult Function(String filePath) installerOpened,
     required TResult Function(String message) error,
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function()? idle,
-    TResult? Function(double progress)? downloading,
+    TResult? Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult? Function(String filePath)? downloaded,
     TResult? Function(String filePath)? permissionNeeded,
-    TResult? Function(String filePath)? installLaunched,
+    TResult? Function(String filePath)? installerOpened,
     TResult? Function(String message)? error,
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function()? idle,
-    TResult Function(double progress)? downloading,
+    TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult Function(String filePath)? downloaded,
     TResult Function(String filePath)? permissionNeeded,
-    TResult Function(String filePath)? installLaunched,
+    TResult Function(String filePath)? installerOpened,
     TResult Function(String message)? error,
     required TResult orElse(),
   }) => throw _privateConstructorUsedError;
@@ -46,24 +67,27 @@ mixin _$ApkDownloadState {
   TResult map<TResult extends Object?>({
     required TResult Function(_Idle value) idle,
     required TResult Function(_Downloading value) downloading,
+    required TResult Function(_Downloaded value) downloaded,
     required TResult Function(_PermissionNeeded value) permissionNeeded,
-    required TResult Function(_InstallLaunched value) installLaunched,
+    required TResult Function(_InstallerOpened value) installerOpened,
     required TResult Function(_Error value) error,
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(_Idle value)? idle,
     TResult? Function(_Downloading value)? downloading,
+    TResult? Function(_Downloaded value)? downloaded,
     TResult? Function(_PermissionNeeded value)? permissionNeeded,
-    TResult? Function(_InstallLaunched value)? installLaunched,
+    TResult? Function(_InstallerOpened value)? installerOpened,
     TResult? Function(_Error value)? error,
   }) => throw _privateConstructorUsedError;
   @optionalTypeArgs
   TResult maybeMap<TResult extends Object?>({
     TResult Function(_Idle value)? idle,
     TResult Function(_Downloading value)? downloading,
+    TResult Function(_Downloaded value)? downloaded,
     TResult Function(_PermissionNeeded value)? permissionNeeded,
-    TResult Function(_InstallLaunched value)? installLaunched,
+    TResult Function(_InstallerOpened value)? installerOpened,
     TResult Function(_Error value)? error,
     required TResult orElse(),
   }) => throw _privateConstructorUsedError;
@@ -133,9 +157,16 @@ class _$IdleImpl implements _Idle {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function() idle,
-    required TResult Function(double progress) downloading,
+    required TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )
+    downloading,
+    required TResult Function(String filePath) downloaded,
     required TResult Function(String filePath) permissionNeeded,
-    required TResult Function(String filePath) installLaunched,
+    required TResult Function(String filePath) installerOpened,
     required TResult Function(String message) error,
   }) {
     return idle();
@@ -145,9 +176,16 @@ class _$IdleImpl implements _Idle {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function()? idle,
-    TResult? Function(double progress)? downloading,
+    TResult? Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult? Function(String filePath)? downloaded,
     TResult? Function(String filePath)? permissionNeeded,
-    TResult? Function(String filePath)? installLaunched,
+    TResult? Function(String filePath)? installerOpened,
     TResult? Function(String message)? error,
   }) {
     return idle?.call();
@@ -157,9 +195,16 @@ class _$IdleImpl implements _Idle {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function()? idle,
-    TResult Function(double progress)? downloading,
+    TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult Function(String filePath)? downloaded,
     TResult Function(String filePath)? permissionNeeded,
-    TResult Function(String filePath)? installLaunched,
+    TResult Function(String filePath)? installerOpened,
     TResult Function(String message)? error,
     required TResult orElse(),
   }) {
@@ -174,8 +219,9 @@ class _$IdleImpl implements _Idle {
   TResult map<TResult extends Object?>({
     required TResult Function(_Idle value) idle,
     required TResult Function(_Downloading value) downloading,
+    required TResult Function(_Downloaded value) downloaded,
     required TResult Function(_PermissionNeeded value) permissionNeeded,
-    required TResult Function(_InstallLaunched value) installLaunched,
+    required TResult Function(_InstallerOpened value) installerOpened,
     required TResult Function(_Error value) error,
   }) {
     return idle(this);
@@ -186,8 +232,9 @@ class _$IdleImpl implements _Idle {
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(_Idle value)? idle,
     TResult? Function(_Downloading value)? downloading,
+    TResult? Function(_Downloaded value)? downloaded,
     TResult? Function(_PermissionNeeded value)? permissionNeeded,
-    TResult? Function(_InstallLaunched value)? installLaunched,
+    TResult? Function(_InstallerOpened value)? installerOpened,
     TResult? Function(_Error value)? error,
   }) {
     return idle?.call(this);
@@ -198,8 +245,9 @@ class _$IdleImpl implements _Idle {
   TResult maybeMap<TResult extends Object?>({
     TResult Function(_Idle value)? idle,
     TResult Function(_Downloading value)? downloading,
+    TResult Function(_Downloaded value)? downloaded,
     TResult Function(_PermissionNeeded value)? permissionNeeded,
-    TResult Function(_InstallLaunched value)? installLaunched,
+    TResult Function(_InstallerOpened value)? installerOpened,
     TResult Function(_Error value)? error,
     required TResult orElse(),
   }) {
@@ -221,7 +269,12 @@ abstract class _$$DownloadingImplCopyWith<$Res> {
     $Res Function(_$DownloadingImpl) then,
   ) = __$$DownloadingImplCopyWithImpl<$Res>;
   @useResult
-  $Res call({double progress});
+  $Res call({
+    double progress,
+    int bytesReceived,
+    int totalBytes,
+    double bytesPerSecond,
+  });
 }
 
 /// @nodoc
@@ -237,12 +290,29 @@ class __$$DownloadingImplCopyWithImpl<$Res>
   /// with the given fields replaced by the non-null parameter values.
   @pragma('vm:prefer-inline')
   @override
-  $Res call({Object? progress = null}) {
+  $Res call({
+    Object? progress = null,
+    Object? bytesReceived = null,
+    Object? totalBytes = null,
+    Object? bytesPerSecond = null,
+  }) {
     return _then(
       _$DownloadingImpl(
         progress: null == progress
             ? _value.progress
             : progress // ignore: cast_nullable_to_non_nullable
+                  as double,
+        bytesReceived: null == bytesReceived
+            ? _value.bytesReceived
+            : bytesReceived // ignore: cast_nullable_to_non_nullable
+                  as int,
+        totalBytes: null == totalBytes
+            ? _value.totalBytes
+            : totalBytes // ignore: cast_nullable_to_non_nullable
+                  as int,
+        bytesPerSecond: null == bytesPerSecond
+            ? _value.bytesPerSecond
+            : bytesPerSecond // ignore: cast_nullable_to_non_nullable
                   as double,
       ),
     );
@@ -252,14 +322,25 @@ class __$$DownloadingImplCopyWithImpl<$Res>
 /// @nodoc
 
 class _$DownloadingImpl implements _Downloading {
-  const _$DownloadingImpl({required this.progress});
+  const _$DownloadingImpl({
+    required this.progress,
+    required this.bytesReceived,
+    required this.totalBytes,
+    required this.bytesPerSecond,
+  });
 
   @override
   final double progress;
+  @override
+  final int bytesReceived;
+  @override
+  final int totalBytes;
+  @override
+  final double bytesPerSecond;
 
   @override
   String toString() {
-    return 'ApkDownloadState.downloading(progress: $progress)';
+    return 'ApkDownloadState.downloading(progress: $progress, bytesReceived: $bytesReceived, totalBytes: $totalBytes, bytesPerSecond: $bytesPerSecond)';
   }
 
   @override
@@ -268,11 +349,23 @@ class _$DownloadingImpl implements _Downloading {
         (other.runtimeType == runtimeType &&
             other is _$DownloadingImpl &&
             (identical(other.progress, progress) ||
-                other.progress == progress));
+                other.progress == progress) &&
+            (identical(other.bytesReceived, bytesReceived) ||
+                other.bytesReceived == bytesReceived) &&
+            (identical(other.totalBytes, totalBytes) ||
+                other.totalBytes == totalBytes) &&
+            (identical(other.bytesPerSecond, bytesPerSecond) ||
+                other.bytesPerSecond == bytesPerSecond));
   }
 
   @override
-  int get hashCode => Object.hash(runtimeType, progress);
+  int get hashCode => Object.hash(
+    runtimeType,
+    progress,
+    bytesReceived,
+    totalBytes,
+    bytesPerSecond,
+  );
 
   /// Create a copy of ApkDownloadState
   /// with the given fields replaced by the non-null parameter values.
@@ -286,38 +379,64 @@ class _$DownloadingImpl implements _Downloading {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function() idle,
-    required TResult Function(double progress) downloading,
+    required TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )
+    downloading,
+    required TResult Function(String filePath) downloaded,
     required TResult Function(String filePath) permissionNeeded,
-    required TResult Function(String filePath) installLaunched,
+    required TResult Function(String filePath) installerOpened,
     required TResult Function(String message) error,
   }) {
-    return downloading(progress);
+    return downloading(progress, bytesReceived, totalBytes, bytesPerSecond);
   }
 
   @override
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function()? idle,
-    TResult? Function(double progress)? downloading,
+    TResult? Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult? Function(String filePath)? downloaded,
     TResult? Function(String filePath)? permissionNeeded,
-    TResult? Function(String filePath)? installLaunched,
+    TResult? Function(String filePath)? installerOpened,
     TResult? Function(String message)? error,
   }) {
-    return downloading?.call(progress);
+    return downloading?.call(
+      progress,
+      bytesReceived,
+      totalBytes,
+      bytesPerSecond,
+    );
   }
 
   @override
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function()? idle,
-    TResult Function(double progress)? downloading,
+    TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult Function(String filePath)? downloaded,
     TResult Function(String filePath)? permissionNeeded,
-    TResult Function(String filePath)? installLaunched,
+    TResult Function(String filePath)? installerOpened,
     TResult Function(String message)? error,
     required TResult orElse(),
   }) {
     if (downloading != null) {
-      return downloading(progress);
+      return downloading(progress, bytesReceived, totalBytes, bytesPerSecond);
     }
     return orElse();
   }
@@ -327,8 +446,9 @@ class _$DownloadingImpl implements _Downloading {
   TResult map<TResult extends Object?>({
     required TResult Function(_Idle value) idle,
     required TResult Function(_Downloading value) downloading,
+    required TResult Function(_Downloaded value) downloaded,
     required TResult Function(_PermissionNeeded value) permissionNeeded,
-    required TResult Function(_InstallLaunched value) installLaunched,
+    required TResult Function(_InstallerOpened value) installerOpened,
     required TResult Function(_Error value) error,
   }) {
     return downloading(this);
@@ -339,8 +459,9 @@ class _$DownloadingImpl implements _Downloading {
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(_Idle value)? idle,
     TResult? Function(_Downloading value)? downloading,
+    TResult? Function(_Downloaded value)? downloaded,
     TResult? Function(_PermissionNeeded value)? permissionNeeded,
-    TResult? Function(_InstallLaunched value)? installLaunched,
+    TResult? Function(_InstallerOpened value)? installerOpened,
     TResult? Function(_Error value)? error,
   }) {
     return downloading?.call(this);
@@ -351,8 +472,9 @@ class _$DownloadingImpl implements _Downloading {
   TResult maybeMap<TResult extends Object?>({
     TResult Function(_Idle value)? idle,
     TResult Function(_Downloading value)? downloading,
+    TResult Function(_Downloaded value)? downloaded,
     TResult Function(_PermissionNeeded value)? permissionNeeded,
-    TResult Function(_InstallLaunched value)? installLaunched,
+    TResult Function(_InstallerOpened value)? installerOpened,
     TResult Function(_Error value)? error,
     required TResult orElse(),
   }) {
@@ -364,15 +486,208 @@ class _$DownloadingImpl implements _Downloading {
 }
 
 abstract class _Downloading implements ApkDownloadState {
-  const factory _Downloading({required final double progress}) =
-      _$DownloadingImpl;
+  const factory _Downloading({
+    required final double progress,
+    required final int bytesReceived,
+    required final int totalBytes,
+    required final double bytesPerSecond,
+  }) = _$DownloadingImpl;
 
   double get progress;
+  int get bytesReceived;
+  int get totalBytes;
+  double get bytesPerSecond;
 
   /// Create a copy of ApkDownloadState
   /// with the given fields replaced by the non-null parameter values.
   @JsonKey(includeFromJson: false, includeToJson: false)
   _$$DownloadingImplCopyWith<_$DownloadingImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$DownloadedImplCopyWith<$Res> {
+  factory _$$DownloadedImplCopyWith(
+    _$DownloadedImpl value,
+    $Res Function(_$DownloadedImpl) then,
+  ) = __$$DownloadedImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({String filePath});
+}
+
+/// @nodoc
+class __$$DownloadedImplCopyWithImpl<$Res>
+    extends _$ApkDownloadStateCopyWithImpl<$Res, _$DownloadedImpl>
+    implements _$$DownloadedImplCopyWith<$Res> {
+  __$$DownloadedImplCopyWithImpl(
+    _$DownloadedImpl _value,
+    $Res Function(_$DownloadedImpl) _then,
+  ) : super(_value, _then);
+
+  /// Create a copy of ApkDownloadState
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({Object? filePath = null}) {
+    return _then(
+      _$DownloadedImpl(
+        filePath: null == filePath
+            ? _value.filePath
+            : filePath // ignore: cast_nullable_to_non_nullable
+                  as String,
+      ),
+    );
+  }
+}
+
+/// @nodoc
+
+class _$DownloadedImpl implements _Downloaded {
+  const _$DownloadedImpl({required this.filePath});
+
+  @override
+  final String filePath;
+
+  @override
+  String toString() {
+    return 'ApkDownloadState.downloaded(filePath: $filePath)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$DownloadedImpl &&
+            (identical(other.filePath, filePath) ||
+                other.filePath == filePath));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, filePath);
+
+  /// Create a copy of ApkDownloadState
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$DownloadedImplCopyWith<_$DownloadedImpl> get copyWith =>
+      __$$DownloadedImplCopyWithImpl<_$DownloadedImpl>(this, _$identity);
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function() idle,
+    required TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )
+    downloading,
+    required TResult Function(String filePath) downloaded,
+    required TResult Function(String filePath) permissionNeeded,
+    required TResult Function(String filePath) installerOpened,
+    required TResult Function(String message) error,
+  }) {
+    return downloaded(filePath);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function()? idle,
+    TResult? Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult? Function(String filePath)? downloaded,
+    TResult? Function(String filePath)? permissionNeeded,
+    TResult? Function(String filePath)? installerOpened,
+    TResult? Function(String message)? error,
+  }) {
+    return downloaded?.call(filePath);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function()? idle,
+    TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult Function(String filePath)? downloaded,
+    TResult Function(String filePath)? permissionNeeded,
+    TResult Function(String filePath)? installerOpened,
+    TResult Function(String message)? error,
+    required TResult orElse(),
+  }) {
+    if (downloaded != null) {
+      return downloaded(filePath);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(_Idle value) idle,
+    required TResult Function(_Downloading value) downloading,
+    required TResult Function(_Downloaded value) downloaded,
+    required TResult Function(_PermissionNeeded value) permissionNeeded,
+    required TResult Function(_InstallerOpened value) installerOpened,
+    required TResult Function(_Error value) error,
+  }) {
+    return downloaded(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(_Idle value)? idle,
+    TResult? Function(_Downloading value)? downloading,
+    TResult? Function(_Downloaded value)? downloaded,
+    TResult? Function(_PermissionNeeded value)? permissionNeeded,
+    TResult? Function(_InstallerOpened value)? installerOpened,
+    TResult? Function(_Error value)? error,
+  }) {
+    return downloaded?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(_Idle value)? idle,
+    TResult Function(_Downloading value)? downloading,
+    TResult Function(_Downloaded value)? downloaded,
+    TResult Function(_PermissionNeeded value)? permissionNeeded,
+    TResult Function(_InstallerOpened value)? installerOpened,
+    TResult Function(_Error value)? error,
+    required TResult orElse(),
+  }) {
+    if (downloaded != null) {
+      return downloaded(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class _Downloaded implements ApkDownloadState {
+  const factory _Downloaded({required final String filePath}) =
+      _$DownloadedImpl;
+
+  String get filePath;
+
+  /// Create a copy of ApkDownloadState
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  _$$DownloadedImplCopyWith<_$DownloadedImpl> get copyWith =>
       throw _privateConstructorUsedError;
 }
 
@@ -451,9 +766,16 @@ class _$PermissionNeededImpl implements _PermissionNeeded {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function() idle,
-    required TResult Function(double progress) downloading,
+    required TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )
+    downloading,
+    required TResult Function(String filePath) downloaded,
     required TResult Function(String filePath) permissionNeeded,
-    required TResult Function(String filePath) installLaunched,
+    required TResult Function(String filePath) installerOpened,
     required TResult Function(String message) error,
   }) {
     return permissionNeeded(filePath);
@@ -463,9 +785,16 @@ class _$PermissionNeededImpl implements _PermissionNeeded {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function()? idle,
-    TResult? Function(double progress)? downloading,
+    TResult? Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult? Function(String filePath)? downloaded,
     TResult? Function(String filePath)? permissionNeeded,
-    TResult? Function(String filePath)? installLaunched,
+    TResult? Function(String filePath)? installerOpened,
     TResult? Function(String message)? error,
   }) {
     return permissionNeeded?.call(filePath);
@@ -475,9 +804,16 @@ class _$PermissionNeededImpl implements _PermissionNeeded {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function()? idle,
-    TResult Function(double progress)? downloading,
+    TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult Function(String filePath)? downloaded,
     TResult Function(String filePath)? permissionNeeded,
-    TResult Function(String filePath)? installLaunched,
+    TResult Function(String filePath)? installerOpened,
     TResult Function(String message)? error,
     required TResult orElse(),
   }) {
@@ -492,8 +828,9 @@ class _$PermissionNeededImpl implements _PermissionNeeded {
   TResult map<TResult extends Object?>({
     required TResult Function(_Idle value) idle,
     required TResult Function(_Downloading value) downloading,
+    required TResult Function(_Downloaded value) downloaded,
     required TResult Function(_PermissionNeeded value) permissionNeeded,
-    required TResult Function(_InstallLaunched value) installLaunched,
+    required TResult Function(_InstallerOpened value) installerOpened,
     required TResult Function(_Error value) error,
   }) {
     return permissionNeeded(this);
@@ -504,8 +841,9 @@ class _$PermissionNeededImpl implements _PermissionNeeded {
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(_Idle value)? idle,
     TResult? Function(_Downloading value)? downloading,
+    TResult? Function(_Downloaded value)? downloaded,
     TResult? Function(_PermissionNeeded value)? permissionNeeded,
-    TResult? Function(_InstallLaunched value)? installLaunched,
+    TResult? Function(_InstallerOpened value)? installerOpened,
     TResult? Function(_Error value)? error,
   }) {
     return permissionNeeded?.call(this);
@@ -516,8 +854,9 @@ class _$PermissionNeededImpl implements _PermissionNeeded {
   TResult maybeMap<TResult extends Object?>({
     TResult Function(_Idle value)? idle,
     TResult Function(_Downloading value)? downloading,
+    TResult Function(_Downloaded value)? downloaded,
     TResult Function(_PermissionNeeded value)? permissionNeeded,
-    TResult Function(_InstallLaunched value)? installLaunched,
+    TResult Function(_InstallerOpened value)? installerOpened,
     TResult Function(_Error value)? error,
     required TResult orElse(),
   }) {
@@ -542,22 +881,22 @@ abstract class _PermissionNeeded implements ApkDownloadState {
 }
 
 /// @nodoc
-abstract class _$$InstallLaunchedImplCopyWith<$Res> {
-  factory _$$InstallLaunchedImplCopyWith(
-    _$InstallLaunchedImpl value,
-    $Res Function(_$InstallLaunchedImpl) then,
-  ) = __$$InstallLaunchedImplCopyWithImpl<$Res>;
+abstract class _$$InstallerOpenedImplCopyWith<$Res> {
+  factory _$$InstallerOpenedImplCopyWith(
+    _$InstallerOpenedImpl value,
+    $Res Function(_$InstallerOpenedImpl) then,
+  ) = __$$InstallerOpenedImplCopyWithImpl<$Res>;
   @useResult
   $Res call({String filePath});
 }
 
 /// @nodoc
-class __$$InstallLaunchedImplCopyWithImpl<$Res>
-    extends _$ApkDownloadStateCopyWithImpl<$Res, _$InstallLaunchedImpl>
-    implements _$$InstallLaunchedImplCopyWith<$Res> {
-  __$$InstallLaunchedImplCopyWithImpl(
-    _$InstallLaunchedImpl _value,
-    $Res Function(_$InstallLaunchedImpl) _then,
+class __$$InstallerOpenedImplCopyWithImpl<$Res>
+    extends _$ApkDownloadStateCopyWithImpl<$Res, _$InstallerOpenedImpl>
+    implements _$$InstallerOpenedImplCopyWith<$Res> {
+  __$$InstallerOpenedImplCopyWithImpl(
+    _$InstallerOpenedImpl _value,
+    $Res Function(_$InstallerOpenedImpl) _then,
   ) : super(_value, _then);
 
   /// Create a copy of ApkDownloadState
@@ -566,7 +905,7 @@ class __$$InstallLaunchedImplCopyWithImpl<$Res>
   @override
   $Res call({Object? filePath = null}) {
     return _then(
-      _$InstallLaunchedImpl(
+      _$InstallerOpenedImpl(
         filePath: null == filePath
             ? _value.filePath
             : filePath // ignore: cast_nullable_to_non_nullable
@@ -578,22 +917,22 @@ class __$$InstallLaunchedImplCopyWithImpl<$Res>
 
 /// @nodoc
 
-class _$InstallLaunchedImpl implements _InstallLaunched {
-  const _$InstallLaunchedImpl({required this.filePath});
+class _$InstallerOpenedImpl implements _InstallerOpened {
+  const _$InstallerOpenedImpl({required this.filePath});
 
   @override
   final String filePath;
 
   @override
   String toString() {
-    return 'ApkDownloadState.installLaunched(filePath: $filePath)';
+    return 'ApkDownloadState.installerOpened(filePath: $filePath)';
   }
 
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||
         (other.runtimeType == runtimeType &&
-            other is _$InstallLaunchedImpl &&
+            other is _$InstallerOpenedImpl &&
             (identical(other.filePath, filePath) ||
                 other.filePath == filePath));
   }
@@ -606,8 +945,8 @@ class _$InstallLaunchedImpl implements _InstallLaunched {
   @JsonKey(includeFromJson: false, includeToJson: false)
   @override
   @pragma('vm:prefer-inline')
-  _$$InstallLaunchedImplCopyWith<_$InstallLaunchedImpl> get copyWith =>
-      __$$InstallLaunchedImplCopyWithImpl<_$InstallLaunchedImpl>(
+  _$$InstallerOpenedImplCopyWith<_$InstallerOpenedImpl> get copyWith =>
+      __$$InstallerOpenedImplCopyWithImpl<_$InstallerOpenedImpl>(
         this,
         _$identity,
       );
@@ -616,38 +955,59 @@ class _$InstallLaunchedImpl implements _InstallLaunched {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function() idle,
-    required TResult Function(double progress) downloading,
+    required TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )
+    downloading,
+    required TResult Function(String filePath) downloaded,
     required TResult Function(String filePath) permissionNeeded,
-    required TResult Function(String filePath) installLaunched,
+    required TResult Function(String filePath) installerOpened,
     required TResult Function(String message) error,
   }) {
-    return installLaunched(filePath);
+    return installerOpened(filePath);
   }
 
   @override
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function()? idle,
-    TResult? Function(double progress)? downloading,
+    TResult? Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult? Function(String filePath)? downloaded,
     TResult? Function(String filePath)? permissionNeeded,
-    TResult? Function(String filePath)? installLaunched,
+    TResult? Function(String filePath)? installerOpened,
     TResult? Function(String message)? error,
   }) {
-    return installLaunched?.call(filePath);
+    return installerOpened?.call(filePath);
   }
 
   @override
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function()? idle,
-    TResult Function(double progress)? downloading,
+    TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult Function(String filePath)? downloaded,
     TResult Function(String filePath)? permissionNeeded,
-    TResult Function(String filePath)? installLaunched,
+    TResult Function(String filePath)? installerOpened,
     TResult Function(String message)? error,
     required TResult orElse(),
   }) {
-    if (installLaunched != null) {
-      return installLaunched(filePath);
+    if (installerOpened != null) {
+      return installerOpened(filePath);
     }
     return orElse();
   }
@@ -657,11 +1017,12 @@ class _$InstallLaunchedImpl implements _InstallLaunched {
   TResult map<TResult extends Object?>({
     required TResult Function(_Idle value) idle,
     required TResult Function(_Downloading value) downloading,
+    required TResult Function(_Downloaded value) downloaded,
     required TResult Function(_PermissionNeeded value) permissionNeeded,
-    required TResult Function(_InstallLaunched value) installLaunched,
+    required TResult Function(_InstallerOpened value) installerOpened,
     required TResult Function(_Error value) error,
   }) {
-    return installLaunched(this);
+    return installerOpened(this);
   }
 
   @override
@@ -669,11 +1030,12 @@ class _$InstallLaunchedImpl implements _InstallLaunched {
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(_Idle value)? idle,
     TResult? Function(_Downloading value)? downloading,
+    TResult? Function(_Downloaded value)? downloaded,
     TResult? Function(_PermissionNeeded value)? permissionNeeded,
-    TResult? Function(_InstallLaunched value)? installLaunched,
+    TResult? Function(_InstallerOpened value)? installerOpened,
     TResult? Function(_Error value)? error,
   }) {
-    return installLaunched?.call(this);
+    return installerOpened?.call(this);
   }
 
   @override
@@ -681,28 +1043,29 @@ class _$InstallLaunchedImpl implements _InstallLaunched {
   TResult maybeMap<TResult extends Object?>({
     TResult Function(_Idle value)? idle,
     TResult Function(_Downloading value)? downloading,
+    TResult Function(_Downloaded value)? downloaded,
     TResult Function(_PermissionNeeded value)? permissionNeeded,
-    TResult Function(_InstallLaunched value)? installLaunched,
+    TResult Function(_InstallerOpened value)? installerOpened,
     TResult Function(_Error value)? error,
     required TResult orElse(),
   }) {
-    if (installLaunched != null) {
-      return installLaunched(this);
+    if (installerOpened != null) {
+      return installerOpened(this);
     }
     return orElse();
   }
 }
 
-abstract class _InstallLaunched implements ApkDownloadState {
-  const factory _InstallLaunched({required final String filePath}) =
-      _$InstallLaunchedImpl;
+abstract class _InstallerOpened implements ApkDownloadState {
+  const factory _InstallerOpened({required final String filePath}) =
+      _$InstallerOpenedImpl;
 
   String get filePath;
 
   /// Create a copy of ApkDownloadState
   /// with the given fields replaced by the non-null parameter values.
   @JsonKey(includeFromJson: false, includeToJson: false)
-  _$$InstallLaunchedImplCopyWith<_$InstallLaunchedImpl> get copyWith =>
+  _$$InstallerOpenedImplCopyWith<_$InstallerOpenedImpl> get copyWith =>
       throw _privateConstructorUsedError;
 }
 
@@ -777,9 +1140,16 @@ class _$ErrorImpl implements _Error {
   @optionalTypeArgs
   TResult when<TResult extends Object?>({
     required TResult Function() idle,
-    required TResult Function(double progress) downloading,
+    required TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )
+    downloading,
+    required TResult Function(String filePath) downloaded,
     required TResult Function(String filePath) permissionNeeded,
-    required TResult Function(String filePath) installLaunched,
+    required TResult Function(String filePath) installerOpened,
     required TResult Function(String message) error,
   }) {
     return error(message);
@@ -789,9 +1159,16 @@ class _$ErrorImpl implements _Error {
   @optionalTypeArgs
   TResult? whenOrNull<TResult extends Object?>({
     TResult? Function()? idle,
-    TResult? Function(double progress)? downloading,
+    TResult? Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult? Function(String filePath)? downloaded,
     TResult? Function(String filePath)? permissionNeeded,
-    TResult? Function(String filePath)? installLaunched,
+    TResult? Function(String filePath)? installerOpened,
     TResult? Function(String message)? error,
   }) {
     return error?.call(message);
@@ -801,9 +1178,16 @@ class _$ErrorImpl implements _Error {
   @optionalTypeArgs
   TResult maybeWhen<TResult extends Object?>({
     TResult Function()? idle,
-    TResult Function(double progress)? downloading,
+    TResult Function(
+      double progress,
+      int bytesReceived,
+      int totalBytes,
+      double bytesPerSecond,
+    )?
+    downloading,
+    TResult Function(String filePath)? downloaded,
     TResult Function(String filePath)? permissionNeeded,
-    TResult Function(String filePath)? installLaunched,
+    TResult Function(String filePath)? installerOpened,
     TResult Function(String message)? error,
     required TResult orElse(),
   }) {
@@ -818,8 +1202,9 @@ class _$ErrorImpl implements _Error {
   TResult map<TResult extends Object?>({
     required TResult Function(_Idle value) idle,
     required TResult Function(_Downloading value) downloading,
+    required TResult Function(_Downloaded value) downloaded,
     required TResult Function(_PermissionNeeded value) permissionNeeded,
-    required TResult Function(_InstallLaunched value) installLaunched,
+    required TResult Function(_InstallerOpened value) installerOpened,
     required TResult Function(_Error value) error,
   }) {
     return error(this);
@@ -830,8 +1215,9 @@ class _$ErrorImpl implements _Error {
   TResult? mapOrNull<TResult extends Object?>({
     TResult? Function(_Idle value)? idle,
     TResult? Function(_Downloading value)? downloading,
+    TResult? Function(_Downloaded value)? downloaded,
     TResult? Function(_PermissionNeeded value)? permissionNeeded,
-    TResult? Function(_InstallLaunched value)? installLaunched,
+    TResult? Function(_InstallerOpened value)? installerOpened,
     TResult? Function(_Error value)? error,
   }) {
     return error?.call(this);
@@ -842,8 +1228,9 @@ class _$ErrorImpl implements _Error {
   TResult maybeMap<TResult extends Object?>({
     TResult Function(_Idle value)? idle,
     TResult Function(_Downloading value)? downloading,
+    TResult Function(_Downloaded value)? downloaded,
     TResult Function(_PermissionNeeded value)? permissionNeeded,
-    TResult Function(_InstallLaunched value)? installLaunched,
+    TResult Function(_InstallerOpened value)? installerOpened,
     TResult Function(_Error value)? error,
     required TResult orElse(),
   }) {

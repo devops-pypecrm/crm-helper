@@ -1,15 +1,20 @@
 import 'package:call_recording_engine/call_recording_engine.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../auth/domain/user_session.dart';
 import '../../../auth/providers/session_provider.dart';
-import '../../../onboarding/presentation/screens/onboarding_screen.dart';
+import '../../../settings/presentation/screens/settings_screen.dart';
 import '../../../updates/presentation/screens/updates_screen.dart';
 import '../../../updates/presentation/widgets/update_banner.dart';
 import '../../../updates/providers/app_update_provider.dart';
+import '../../../../core/navigation/app_page_route.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/premium_button.dart';
+import '../../../../core/widgets/premium_card.dart';
+import '../../../../core/widgets/status_pill.dart';
 import '../../providers/status_provider.dart';
 
 class StatusScreen extends ConsumerWidget {
@@ -35,43 +40,38 @@ class StatusScreen extends ConsumerWidget {
               child: const Icon(Icons.system_update_outlined),
             ),
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const UpdatesScreen()),
+              AppPageRoute(builder: (_) => const UpdatesScreen()),
             ),
           ),
           IconButton(
-            tooltip: 'Log out',
-            icon: const Icon(Icons.logout),
-            onPressed: () => ref.read(sessionControllerProvider.notifier).logout(),
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => Navigator.of(context).push(
+              AppPageRoute(builder: (_) => const SettingsScreen()),
+            ),
           ),
         ],
       ),
       body: RefreshIndicator(
         onRefresh: () => ref.read(engineStatusControllerProvider.notifier).refresh(),
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
           children: [
             const UpdateBanner(),
-            if (session != null) _SignedInCard(session: session),
+            if (session != null)
+              _SignedInCard(session: session).animate().fadeIn(duration: 350.ms).slideY(begin: 0.08),
             const SizedBox(height: 16),
             statusAsync.when(
-              data: (status) => _StatusCard(status: status),
+              data: (status) => _StatusCard(status: status)
+                  .animate()
+                  .fadeIn(delay: 60.ms, duration: 350.ms)
+                  .slideY(begin: 0.08),
               loading: () => const Padding(
                 padding: EdgeInsets.symmetric(vertical: 32),
                 child: Center(child: CircularProgressIndicator()),
               ),
-              error: (error, _) => Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('Could not read engine status: $error'),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.settings_outlined),
-              label: const Text('Permissions & battery setup'),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const OnboardingScreen(fromStatusScreen: true)),
+              error: (error, _) => PremiumCard(
+                child: Text('Could not read engine status: $error'),
               ),
             ),
           ],
@@ -88,15 +88,34 @@ class _SignedInCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: kBrandColor.withValues(alpha: 0.15),
-          foregroundColor: kBrandColor,
-          child: const Icon(Icons.person),
-        ),
-        title: Text('${session.firstName} ${session.lastName}'),
-        subtitle: Text('${session.organisation.name} · ${session.email}'),
+    return PremiumCard(
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: kBrandColor.withValues(alpha: 0.15),
+            foregroundColor: kBrandColor,
+            child: const Icon(Icons.person),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${session.firstName} ${session.lastName}',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${session.organisation.name} · ${session.email}',
+                  style: const TextStyle(color: Colors.black54),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -191,7 +210,7 @@ class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProvi
         }
         color = Colors.red;
       case ManualSyncStatus.permissionMissing:
-        message = 'Call Log permission is missing — grant it in Required Permissions to sync calls.';
+        message = 'Call Log permission is missing — grant it in Settings to sync calls.';
         color = Colors.red;
       case ManualSyncStatus.notSignedIn:
         message = 'Not signed in — sign in to the app first.';
@@ -213,113 +232,68 @@ class _StatusCardState extends ConsumerState<_StatusCard> with SingleTickerProvi
     final dateFormat = DateFormat('MMM d, h:mm a');
     final permissionsAsync = ref.watch(enginePermissionsProvider);
     final callLogGranted = permissionsAsync.valueOrNull?[CallRecordingEngine.readCallLogPermission] ?? false;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Text('Call monitoring', style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: status.monitoringEnabled
-                            ? kBrandColor.withValues(alpha: 0.15)
-                            : Theme.of(context).colorScheme.errorContainer,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        status.monitoringEnabled ? 'Active' : 'Off',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: status.monitoringEnabled
-                              ? kBrandColor
-                              : Theme.of(context).colorScheme.onErrorContainer,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                Switch(
-                  value: status.monitoringEnabled,
-                  onChanged: (enabled) =>
-                      ref.read(engineStatusControllerProvider.notifier).toggleMonitoring(enabled),
-                ),
-              ],
-            ),
-            const Divider(),
-            _StatRow(
-              label: 'Last synced call',
-              value: status.lastSyncedAt == null ? 'Never yet' : dateFormat.format(status.lastSyncedAt!),
-            ),
-            _StatRow(
-              label: "Recordings found (phone's own recorder)",
-              value: '${status.tier0SuccessCount}',
-            ),
-            _StatRow(
-              label: 'Recordings captured by this app',
-              value: '${status.tier1SuccessCount + status.tier2SuccessCount}',
-            ),
-            if (status.tier3SuccessCount > 0)
-              _StatRow(
-                label: 'Recordings captured (fallback method)',
-                value: '${status.tier3SuccessCount}',
+    return PremiumCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Text('Call monitoring', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(width: 10),
+                  StatusPill(
+                    label: status.monitoringEnabled ? 'Active' : 'Off',
+                    active: status.monitoringEnabled,
+                  ),
+                ],
               ),
-            _StatRow(
-              label: 'Call logs synced (metadata only, no audio)',
-              value: '${status.tier4SuccessCount}',
-            ),
-            _StatRow(
-              label: 'Call log history access',
-              value: callLogGranted ? 'Granted' : 'Not granted',
-            ),
-            _StatRow(
-              label: 'WhatsApp replies logged',
-              value: '${status.whatsAppSyncCount}',
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: RotationTransition(
-                  turns: _syncIconController,
-                  child: const Icon(Icons.sync, size: 18),
-                ),
-                label: Text(_isSyncing ? 'Syncing…' : 'Sync call logs now'),
-                onPressed: (!callLogGranted || _isSyncing) ? null : _handleSyncNow,
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                icon: _isReverifying
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.history, size: 18),
-                label: Text(_isReverifying ? 'Re-checking…' : "Re-check today's calls"),
-                onPressed: (!callLogGranted || _isReverifying) ? null : _handleReverifyToday,
-              ),
-            ),
-            if (!status.monitoringEnabled) ...[
-              const SizedBox(height: 8),
-              const Text(
-                'Monitoring is off — no calls are being watched or synced to the CRM.',
-                style: TextStyle(fontStyle: FontStyle.italic),
+              Switch(
+                value: status.monitoringEnabled,
+                onChanged: (enabled) =>
+                    ref.read(engineStatusControllerProvider.notifier).toggleMonitoring(enabled),
               ),
             ],
+          ),
+          const Divider(),
+          _StatRow(
+            label: 'Last synced call',
+            value: status.lastSyncedAt == null ? 'Never yet' : dateFormat.format(status.lastSyncedAt!),
+          ),
+          _StatRow(
+            label: "Recordings found (phone's own recorder)",
+            value: '${status.tier0SuccessCount}',
+          ),
+          _StatRow(
+            label: 'Call logs synced (metadata only, no audio)',
+            value: '${status.tier4SuccessCount}',
+          ),
+          _StatRow(
+            label: 'Call log history access',
+            value: callLogGranted ? 'Granted' : 'Not granted',
+          ),
+          const SizedBox(height: 16),
+          PrimaryButton(
+            icon: Icons.sync,
+            label: _isSyncing ? 'Syncing…' : 'Sync call logs now',
+            loading: _isSyncing,
+            onPressed: (!callLogGranted || _isSyncing) ? null : _handleSyncNow,
+          ),
+          const SizedBox(height: 10),
+          SecondaryButton(
+            icon: Icons.history,
+            label: _isReverifying ? 'Re-checking…' : "Re-check today's calls",
+            onPressed: (!callLogGranted || _isReverifying) ? null : _handleReverifyToday,
+          ),
+          if (!status.monitoringEnabled) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Monitoring is off — no calls are being watched or synced to the CRM.',
+              style: TextStyle(fontStyle: FontStyle.italic, color: Colors.black54.withValues(alpha: 0.8)),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -334,12 +308,15 @@ class _StatRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Expanded(
+            child: Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ),
+          const SizedBox(width: 8),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
         ],
       ),
     );
